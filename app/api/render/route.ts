@@ -172,6 +172,11 @@ export async function POST(req: NextRequest) {
                     outputLocation,
                     inputProps,
                     concurrency: os.cpus().length,
+                    // Enable hardware acceleration if available (e.g. NVENC, VideoToolbox)
+                    // @ts-ignore
+                    proResProfile: 'HQ', // Ignored if h264, but good practice
+                    // @ts-ignore
+                    hardwareAcceleration: 'if-possible',
                     chromiumOptions: {
                         gl: 'angle',
                         // We still allow file access just in case, but rely on HTTP
