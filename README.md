@@ -107,4 +107,4 @@ If the export gets stuck:
 
 ---
 
-Made with ❤️ by [Your Name]
+Made with ❤️ by PsycoSlime
