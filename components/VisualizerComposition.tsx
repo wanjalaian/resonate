@@ -1,12 +1,22 @@
 import React from 'react';
 import { useAudioData, visualizeAudio } from '@remotion/media-utils';
-import { useCurrentFrame, useVideoConfig, Audio, Img, Series } from 'remotion';
+import { useCurrentFrame, useVideoConfig, Audio, Img, Video, Series, Sequence } from 'remotion';
+
+export type VisualizerPositionPreset = 'top' | 'center' | 'bottom' | 'lower-third';
+
+export const VISUALIZER_POSITION_PRESETS: Record<VisualizerPositionPreset, number> = {
+    'top': 15,
+    'center': 50,
+    'bottom': 85,
+    'lower-third': 66,
+};
 
 export interface VisualizerConfig {
     color: string;
     type: 'bars' | 'wave';
     sensitivity: number;
-    position: number; // 0 to 100 percentage
+    position: number; // 0 to 100 percentage (fine-tuning slider)
+    visualizerPosition: VisualizerPositionPreset | 'custom'; // preset or custom
     orientation: 'horizontal' | 'vertical';
     showTitle: boolean;
     titlePosition: 'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right';
@@ -19,10 +29,21 @@ export interface AudioTrack {
     durationInFrames: number;
 }
 
+export interface BackgroundMedia {
+    id: string;
+    type: 'image' | 'video';
+    url: string;
+    name: string;
+    durationInSeconds: number; // for videos (0 for images?)
+    trimStart: number; // seconds
+    trimEnd: number; // seconds
+    isBoomerang: boolean;
+}
+
 export interface VisualizerCompositionProps {
     audioUrl?: string; // fallback
     audioTracks?: AudioTrack[];
-    bgImageUrl?: string;
+    backgrounds?: BackgroundMedia[];
     config?: VisualizerConfig;
 }
 
@@ -120,7 +141,7 @@ const SingleTrackVisualizer: React.FC<{
                         Now Playing:
                     </span>
                     <h1 className="text-5xl font-extrabold text-white tracking-tighter shadow-black drop-shadow-2xl">
-                        {track.name.replace(/\.[^/.]+$/, "")}
+                        {track.name}
                     </h1>
                 </div>
             )}
@@ -202,28 +223,200 @@ const SingleTrackVisualizer: React.FC<{
 export const VisualizerComposition: React.FC<VisualizerCompositionProps> = ({
     audioUrl,
     audioTracks = [],
-    bgImageUrl,
+    backgrounds = [],
     config = {
         color: '#ffffff',
         type: 'wave',
         sensitivity: 1.5,
         position: 50,
+        visualizerPosition: 'center',
         orientation: 'horizontal',
         showTitle: true,
         titlePosition: 'center'
     },
 }) => {
+    const { fps, durationInFrames } = useVideoConfig();
+
+    // Calculate effective audio duration to ensure background loops enough
+    const totalAudioDuration = audioTracks.length > 0
+        ? audioTracks.reduce((acc, t) => acc + t.durationInFrames, 0)
+        : (audioUrl ? 30 * 60 : 300); // fallback
+
+    // Calculate one full loop of background sequence
+    const backgroundSequence: { media: BackgroundMedia; start: number; end: number; duration: number }[] = [];
+
+    if (backgrounds.length === 0) {
+        // Default black or fallback
+    } else {
+        let currentFrame = 0;
+
+        // We need to tile the backgrounds until we cover totalAudioDuration
+        // But doing it statically might be huge array.
+        // Better: Just make one 'Unit' sequence and leave it to the user to manage? 
+        // No, user said "loop throughout the entire video".
+        // So we repeat the sequence.
+    }
+
+    // Helper to render backgrounds
+    const renderBackgrounds = () => {
+        if (backgrounds.length === 0) {
+            return <div className="absolute inset-0 bg-neutral-900" />;
+        }
+
+        // 1. Calculate duration of one full pass of the user's background playlist
+        let playlistDuration = 0;
+        const processedItems = backgrounds.map(bg => {
+            // duration = (trimEnd - trimStart) * (isBoomerang ? 2 : 1)
+            // effectiveDuration in frames
+            let durationSecs = 5; // default for image
+            if (bg.type === 'video') {
+                durationSecs = Math.max(0, bg.trimEnd - bg.trimStart);
+            }
+            // boomerang: double it? (even if we don't reverse yet, we reserve space)
+            // For now, boomerang just plays same clip twice (forward-forward) as placeholder
+            if (bg.isBoomerang) durationSecs *= 2;
+
+            const frames = Math.round(durationSecs * fps);
+            playlistDuration += frames;
+            return { ...bg, durationInFrames: frames };
+        });
+
+        if (playlistDuration === 0) return <div className="absolute inset-0 bg-neutral-900" />;
+
+        // 2. Calculate how many loops needed
+        const loops = Math.ceil(totalAudioDuration / playlistDuration) + 1;
+
+        // 3. Render
+        const elements = [];
+        let accumulatedFrame = 0;
+
+        for (let l = 0; l < loops; l++) {
+            for (const item of processedItems) {
+                // Determine content
+                const content = (
+                    <>
+                        {item.type === 'image' ? (
+                            <Img src={item.url} className="absolute inset-0 w-full h-full object-cover" />
+                        ) : (
+                            <Video
+                                src={item.url}
+                                startFrom={Math.round(item.trimStart * fps)}
+                                endAt={Math.round(item.trimEnd * fps)}
+                                className="absolute inset-0 w-full h-full object-cover"
+                                volume={0} // Mute background
+                            />
+                        )}
+                    </>
+                );
+
+                elements.push(
+                    <Sequence
+                        key={`${l}-${item.id}`}
+                        from={accumulatedFrame}
+                        durationInFrames={item.durationInFrames}
+                        layout="none"
+                    >
+                        {content}
+                        {/* Boomerang Placeholder: The second half would ideally be reversed */}
+                        {/* Currently logic handles boomerang by doubling duration, but we just show one instance? */}
+                        {/* Wait, if duration is doubled, we need to handle the content rendering twice? */}
+                        {/* Simplified: processedItems already has total duration. But Sequence content is static. */}
+                        {/* Let's refine logical loop */}
+                    </Sequence>
+                );
+
+                // If boomerang, add the reverse part
+                // The item.durationInFrames includes both parts.
+                // We should split it?
+                // Actually, cleaner logic: Iterate items, if boomerang, push Forward Sequence, then Reverse Sequence.
+                // But processedItems already summed it.
+                // Let's rewrite loop slightly.
+                accumulatedFrame += item.durationInFrames;
+            }
+        }
+
+        // Correct approach for loop rendering inside Loop
+        // Wait, 'elements' array with Sequence is correct.
+        // But the content inside Sequence needs to handle the boomerang logic if we want to show distinct forward/back.
+        // Let's stick to simple forward for now.
+        // The above loop pushes one Sequence per item per loop.
+        // If item is boomerang (duration * 2), this Sequence will show the video for 2x time.
+        // But Video component will likely loop or turn black if it exceeds endAt-startFrom.
+        // We need to explicitly handle boomerang parts.
+
+        return <>{elements}</>;
+    };
+
+    // Re-implement Render logic to handle Boomerang properly (Forward then Backward placeholder)
+    const renderBackgroundsRefined = () => {
+        if (backgrounds.length === 0) return <div className="absolute inset-0 bg-neutral-900" />;
+
+        const elements = [];
+        let accumulatedFrame = 0;
+
+        // Loop enough times
+        while (accumulatedFrame < totalAudioDuration + 300) { // + buffer
+            for (const bg of backgrounds) {
+                // Forward
+                const durationSecs = bg.type === 'image' ? 5 : Math.max(0.1, bg.trimEnd - bg.trimStart);
+                const durationFrames = Math.round(durationSecs * fps);
+
+                elements.push(
+                    <Sequence
+                        key={`fwd-${accumulatedFrame}`}
+                        from={accumulatedFrame}
+                        durationInFrames={durationFrames}
+                    >
+                        {bg.type === 'image' ? (
+                            <Img src={bg.url} className="w-full h-full object-cover" />
+                        ) : (
+                            <Video
+                                src={bg.url}
+                                startFrom={Math.round(bg.trimStart * fps)}
+                                endAt={Math.round(bg.trimEnd * fps)}
+                                className="w-full h-full object-cover"
+                                volume={0}
+                            />
+                        )}
+                    </Sequence>
+                );
+                accumulatedFrame += durationFrames;
+
+                // Backward (Boomerang)
+                if (bg.isBoomerang && bg.type === 'video') {
+                    // Placeholder: Play forward again for now (reversed is hard without pre-process)
+                    // Or maybe we can try playbackRate={-1}? (Docs: "must be positive")
+                    elements.push(
+                        <Sequence
+                            key={`rev-${accumulatedFrame}`}
+                            from={accumulatedFrame}
+                            durationInFrames={durationFrames}
+                        >
+                            <Video
+                                src={bg.url}
+                                startFrom={Math.round(bg.trimStart * fps)}
+                                endAt={Math.round(bg.trimEnd * fps)}
+                                className="w-full h-full object-cover"
+                                volume={0}
+                            // playbackRate={-1} // Not supported
+                            />
+                        </Sequence>
+                    );
+                    accumulatedFrame += durationFrames;
+                }
+            }
+        }
+        return <>{elements}</>;
+    };
+
     const effectiveTracks = audioTracks.length > 0
         ? audioTracks
         : (audioUrl ? [{ id: 'default', url: audioUrl, durationInFrames: 30 * 60 * 30, name: 'Audio Track' }] : []);
 
     return (
         <div className="absolute inset-0 w-full h-full bg-black">
-            {bgImageUrl ? (
-                <Img src={bgImageUrl} className="absolute inset-0 w-full h-full object-cover" />
-            ) : (
-                <div className="absolute inset-0 bg-neutral-900" />
-            )}
+            {renderBackgroundsRefined()}
+
             <Series>
                 {effectiveTracks.map((track, i) => (
                     <Series.Sequence key={`${track.id}-${i}`} durationInFrames={track.durationInFrames}>
