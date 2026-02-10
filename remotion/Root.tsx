@@ -13,7 +13,16 @@ const visualizerSchema = z.object({
         name: z.string(),
         durationInFrames: z.number()
     })).optional(),
-    bgImageUrl: z.string().optional(),
+    backgrounds: z.array(z.object({
+        id: z.string(),
+        type: z.enum(['image', 'video']),
+        url: z.string(),
+        name: z.string(),
+        durationInSeconds: z.number(),
+        trimStart: z.number(),
+        trimEnd: z.number(),
+        isBoomerang: z.boolean()
+    })).optional(),
     config: z.object({
         color: z.string(),
         type: z.enum(['bars', 'wave']),

@@ -22,8 +22,9 @@ export async function POST(req: NextRequest) {
 
         const configStr = formData.get('config') as string;
         const tracksStr = formData.get('tracks') as string;
+        const backgroundsStr = formData.get('backgrounds') as string;
         const files = formData.getAll('files') as File[];
-        const bgFile = formData.get('bgFile') as File | null;
+        const bgFiles = formData.getAll('bgFiles') as File[];
 
         const tempDir = path.join(os.tmpdir(), 'remotion-render-' + jobId);
         await mkdir(tempDir, { recursive: true });
@@ -34,10 +35,11 @@ export async function POST(req: NextRequest) {
             try {
                 renderJobs.set(jobId, { id: jobId, status: 'processing', progress: 0.01 });
 
+                // Dynamic import to avoid build-time issues if not using standard next config
                 const { bundle } = await import('@remotion/bundler');
                 const { renderMedia, selectComposition } = await import('@remotion/renderer');
 
-                // Save Files
+                // Save Audio Files
                 const fileMap: Record<string, string> = {};
                 for (const file of files) {
                     const bytes = await file.arrayBuffer();
@@ -48,12 +50,14 @@ export async function POST(req: NextRequest) {
                     fileMap[file.name] = safeName; // Map original name (trackID) to safe filename
                 }
 
-                let bgFileName = undefined;
-                if (bgFile) {
-                    const bytes = await bgFile.arrayBuffer();
-                    bgFileName = 'bg-image-' + bgFile.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-                    const p = path.join(tempDir, bgFileName);
-                    await writeFile(p, Buffer.from(bytes));
+                // Save Background Files
+                const bgFileMap: Record<string, string> = {};
+                for (const file of bgFiles) {
+                    const bytes = await file.arrayBuffer();
+                    const safeName = 'bg-' + file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+                    const filePath = path.join(tempDir, safeName);
+                    await writeFile(filePath, Buffer.from(bytes));
+                    bgFileMap[file.name] = safeName; // Map ID to filename
                 }
 
                 // --- START LOCAL ASSET SERVER ---
@@ -81,12 +85,13 @@ export async function POST(req: NextRequest) {
                 });
                 const address = server.address();
                 // @ts-ignore
-                const port = address.port;
+                const port = address.port; // @ts-ignore
                 const baseUrl = `http://127.0.0.1:${port}`;
                 console.log(`Asset server listening on ${baseUrl} serving ${tempDir}`);
 
                 // Reconstruct Props with HTTP URLs
-                const rawTracks = JSON.parse(tracksStr);
+                const rawTracks = tracksStr ? JSON.parse(tracksStr) : [];
+                const rawBackgrounds = backgroundsStr ? JSON.parse(backgroundsStr) : [];
                 const config = JSON.parse(configStr);
 
                 const audioTracks = rawTracks.map((t: any) => {
@@ -98,9 +103,17 @@ export async function POST(req: NextRequest) {
                     };
                 });
 
+                const backgrounds = rawBackgrounds.map((b: any) => {
+                    const safeName = bgFileMap[b.id];
+                    return {
+                        ...b,
+                        url: safeName ? `${baseUrl}/${safeName}` : b.url
+                    };
+                });
+
                 const inputProps = {
                     audioTracks,
-                    bgImageUrl: bgFileName ? `${baseUrl}/${bgFileName}` : undefined,
+                    backgrounds,
                     config
                 };
 

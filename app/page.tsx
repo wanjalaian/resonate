@@ -3,12 +3,14 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
 import { getAudioDurationInSeconds } from '@remotion/media-utils';
-import { VisualizerComposition, VisualizerConfig, AudioTrack } from '@/components/VisualizerComposition';
+import { VisualizerComposition, VisualizerConfig, AudioTrack, VisualizerPositionPreset, VISUALIZER_POSITION_PRESETS, BackgroundMedia } from '@/components/VisualizerComposition';
 import {
-  Play, Download, Upload, Music, Image as ImageIcon, Trash2, Plus,
-  Settings2, Volume2, Activity, Zap, GripVertical, Type, Video, LayoutTemplate, Loader2
+  Play, Download, Upload, Music, Image as ImageIcon, Trash2, Plus, Film,
+  Settings2, Volume2, Activity, Zap, GripVertical, Type, Video, LayoutTemplate, Loader2, Shuffle, Scissors, Repeat, X
 } from 'lucide-react';
+import { getVideoMetadata } from '@remotion/media-utils';
 import { cn } from '@/lib/utils';
+import { readID3Tags } from '@/lib/id3';
 import {
   DndContext,
   closestCenter,
@@ -94,9 +96,115 @@ function SortableTrackItem({
   );
 }
 
+function SortableBackgroundItem({
+  item,
+  onRemove,
+  onUpdate
+}: {
+  item: BackgroundMedia,
+  onRemove: (id: string) => void,
+  onUpdate: (id: string, updates: Partial<BackgroundMedia>) => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 1
+  };
+
+  const icon = item.type === 'video' ? <Film size={14} /> : <ImageIcon size={14} />;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "p-2 bg-neutral-900/60 hover:bg-neutral-900 rounded-lg border border-neutral-800 hover:border-neutral-700 transition mb-2 group relative"
+      )}
+    >
+      <div className="flex items-center gap-3 mb-2">
+        <div {...attributes} {...listeners} className="cursor-grab hover:text-teal-400 text-neutral-600 p-1">
+          <GripVertical size={16} />
+        </div>
+
+        <div className="w-8 h-8 bg-neutral-800 rounded flex items-center justify-center text-neutral-500 shrink-0">
+          {icon}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-neutral-300 truncate">{item.name}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded uppercase font-bold">{item.type}</span>
+            {item.type === 'video' && (
+              <span className="text-[10px] text-neutral-500 font-mono">
+                {(item.trimEnd - item.trimStart).toFixed(1)}s
+              </span>
+            )}
+          </div>
+        </div>
+
+        <button onClick={() => onRemove(item.id)} className="text-neutral-500 hover:text-red-400 p-1.5 hover:bg-neutral-800 rounded-md transition opacity-0 group-hover:opacity-100">
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      {/* Controls */}
+      {item.type === 'video' && (
+        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-neutral-800/50">
+          <div className="flex items-center gap-1.5">
+            <Scissors size={12} className="text-neutral-500" />
+            <div className="flex items-center gap-1 text-[10px]">
+              <input
+                type="number"
+                value={item.trimStart}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val >= 0 && val < item.trimEnd) onUpdate(item.id, { trimStart: val });
+                }}
+                className="w-8 bg-neutral-800 text-neutral-300 rounded px-1 py-0.5 text-center focus:outline-none focus:ring-1 focus:ring-teal-500/50"
+              />
+              <span className="text-neutral-600">-</span>
+              <input
+                type="number"
+                value={item.trimEnd}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val > item.trimStart && val <= item.durationInSeconds) onUpdate(item.id, { trimEnd: val });
+                }}
+                step="0.1"
+                className="w-10 bg-neutral-800 text-neutral-300 rounded px-1 py-0.5 text-center focus:outline-none focus:ring-1 focus:ring-teal-500/50"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-1.5 cursor-pointer justify-end">
+            <span className={cn("text-[10px] font-medium transition", item.isBoomerang ? "text-teal-400" : "text-neutral-500")}>Boomerang</span>
+            <input
+              type="checkbox"
+              checked={item.isBoomerang}
+              onChange={(e) => onUpdate(item.id, { isBoomerang: e.target.checked })}
+              className="accent-teal-500 h-3 w-3 rounded bg-neutral-800 border-neutral-700"
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AudioVisualizerApp() {
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
-  const [bgInfo, setBgInfo] = useState<{ url: string | null, name: string }>({ url: null, name: '' });
+  const [backgrounds, setBackgrounds] = useState<BackgroundMedia[]>([]);
+
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [showTimestamps, setShowTimestamps] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -109,6 +217,7 @@ export default function AudioVisualizerApp() {
     type: 'wave',
     sensitivity: 1.5,
     position: 50,
+    visualizerPosition: 'center',
     orientation: 'horizontal',
     showTitle: true,
     titlePosition: 'center'
@@ -121,31 +230,95 @@ export default function AudioVisualizerApp() {
     })
   );
 
+  const bgSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
+    // Track existing names
+    const existingNames = new Set(audioTracks.map(t => t.name));
+
     for (const file of files) {
       const url = URL.createObjectURL(file);
+      let trackName = file.name.replace(/\.[^/.]+$/, "");
+      console.log(`[AudioUpload] Processing file: ${file.name}`);
+
+      try {
+        const metadata = await readID3Tags(file);
+        if (metadata.title) {
+          trackName = metadata.title;
+        }
+      } catch (metaErr) {
+        console.warn("Could not read metadata", metaErr);
+      }
+
+      // Dedupe
+      let uniqueName = trackName;
+      let counter = 2;
+      while (existingNames.has(uniqueName)) {
+        uniqueName = `${trackName} (${counter})`;
+        counter++;
+      }
+      existingNames.add(uniqueName);
+
       try {
         const durationInSeconds = await getAudioDurationInSeconds(url);
         const durationInFrames = Math.ceil(durationInSeconds * 30);
 
         setAudioTracks(prev => [...prev, {
-          id: Math.random().toString(36).substr(2, 9),
+          id: `track-${Math.random().toString(36).substr(2, 9)}`,
           url,
-          name: file.name.replace(/\.[^/.]+$/, ""),
+          name: uniqueName,
           durationInFrames
         }]);
       } catch (err) {
         console.error("Failed", err);
         setAudioTracks(prev => [...prev, {
-          id: Math.random().toString(36).substr(2, 9),
+          id: `track-${Math.random().toString(36).substr(2, 9)}`,
           url,
-          name: file.name,
+          name: uniqueName,
           durationInFrames: 30 * 30
         }]);
       }
+    }
+  };
+
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      const url = URL.createObjectURL(file);
+      let duration = 5;
+      let type: 'video' | 'image' = 'image';
+
+      if (file.type.startsWith('video/')) {
+        type = 'video';
+        try {
+          const meta = await getVideoMetadata(url);
+          duration = meta.durationInSeconds;
+        } catch (err) {
+          console.error("Failed", err);
+          duration = 10;
+        }
+      }
+
+      setBackgrounds(prev => [...prev, {
+        id: `bg-${Math.random().toString(36).substr(2, 9)}`,
+        type,
+        url,
+        name: file.name,
+        durationInSeconds: duration,
+        trimStart: 0,
+        trimEnd: duration,
+        isBoomerang: false
+      }]);
     }
   };
 
@@ -160,8 +333,28 @@ export default function AudioVisualizerApp() {
     }
   };
 
-  const removeTrack = (id: string) => {
-    setAudioTracks(prev => prev.filter(t => t.id !== id));
+  const handleBgDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (active.id !== over?.id) {
+      setBackgrounds((items) => {
+        const oldIndex = items.findIndex(i => i.id === active.id);
+        const newIndex = items.findIndex(i => i.id === over?.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const removeTrack = (id: string) => setAudioTracks(prev => prev.filter(t => t.id !== id));
+
+  const shuffleTracks = () => {
+    setAudioTracks(prev => {
+      const arr = [...prev];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    });
   };
 
   const renameTrack = (id: string, newName: string) => {
@@ -175,6 +368,14 @@ export default function AudioVisualizerApp() {
       frame += audioTracks[i].durationInFrames;
     }
     playerRef.current.seekTo(frame);
+  };
+
+  const updateBackground = (id: string, updates: Partial<BackgroundMedia>) => {
+    setBackgrounds(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+  };
+
+  const removeBackground = (id: string) => {
+    setBackgrounds(prev => prev.filter(b => b.id === id));
   };
 
   const handleExport = async () => {
@@ -196,12 +397,14 @@ export default function AudioVisualizerApp() {
         formData.append('files', blob, t.id);
       }
 
-      if (bgInfo.url) {
-        const blob = await fetch(bgInfo.url).then(r => r.blob());
-        formData.append('bgFile', blob, bgInfo.name || 'bg.png');
+      const backgroundsMeta = backgrounds.map(b => ({ ...b }));
+      formData.append('backgrounds', JSON.stringify(backgroundsMeta));
+
+      for (const bg of backgrounds) {
+        const blob = await fetch(bg.url).then(r => r.blob());
+        formData.append('bgFiles', blob, bg.id);
       }
 
-      // 1. Start Job
       const res = await fetch('/api/render', {
         method: 'POST',
         body: formData
@@ -214,35 +417,24 @@ export default function AudioVisualizerApp() {
 
       const { jobId } = await res.json();
 
-      // 2. Poll Progress
       while (true) {
         const statusRes = await fetch(`/api/progress?id=${jobId}`);
-        if (!statusRes.ok) {
-          const text = await statusRes.text();
-          throw new Error(`Status check failed (${statusRes.status}): ${text}`);
-        }
-
+        if (!statusRes.ok) throw new Error('Status check failed');
         const job = await statusRes.json();
 
-        if (job.status === 'error') {
-          throw new Error(job.error || "Render job failed");
-        }
+        if (job.status === 'error') throw new Error(job.error || "Failed");
 
         setExportProgress(job.progress);
 
         if (job.status === 'done' && job.url) {
-          // Download
           const a = document.createElement('a');
           a.href = job.url;
           a.download = `visualizer-mix.mp4`;
           a.click();
           break;
         }
-
-        // Wait 1s
         await new Promise(r => setTimeout(r, 1000));
       }
-
     } catch (e: any) {
       console.error(e);
       alert("Export failed: " + e.message);
@@ -251,8 +443,6 @@ export default function AudioVisualizerApp() {
       setExportProgress(0);
     }
   };
-
-  const handleBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => e.target.files?.[0] && setBgInfo({ url: URL.createObjectURL(e.target.files[0]), name: e.target.files[0].name });
 
   const totalDuration = audioTracks.reduce((acc, t) => acc + t.durationInFrames, 0);
 
@@ -315,9 +505,16 @@ export default function AudioVisualizerApp() {
                 <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
                   <Music size={14} /> Playlist ({audioTracks.length})
                 </h3>
-                <button onClick={() => setShowTimestamps(!showTimestamps)} className="text-[10px] uppercase bg-neutral-800 text-neutral-400 px-2 py-1 rounded hover:text-white transition">
-                  {showTimestamps ? 'Hide Times' : 'Get Times'}
-                </button>
+                <div className="flex items-center gap-1">
+                  {audioTracks.length > 1 && (
+                    <button onClick={shuffleTracks} className="text-[10px] uppercase bg-neutral-800 text-neutral-400 px-2 py-1 rounded hover:text-white hover:bg-neutral-700 transition flex items-center gap-1" title="Randomize order">
+                      <Shuffle size={12} /> Shuffle
+                    </button>
+                  )}
+                  <button onClick={() => setShowTimestamps(!showTimestamps)} className="text-[10px] uppercase bg-neutral-800 text-neutral-400 px-2 py-1 rounded hover:text-white transition">
+                    {showTimestamps ? 'Hide Times' : 'Get Times'}
+                  </button>
+                </div>
               </div>
 
               {showTimestamps && (
@@ -371,22 +568,45 @@ export default function AudioVisualizerApp() {
                   </div>
                 </label>
               </div>
+            </div>
 
-              {/* BG Image */}
-              <div className="pt-4 border-t border-neutral-800/50">
-                <label className="flex items-center gap-3 p-2 hover:bg-neutral-800 rounded-lg cursor-pointer group transition">
-                  <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center bg-neutral-800 border border-neutral-700", bgInfo.url && "border-purple-500")}>
-                    {bgInfo.url ? (
-                      <img src={bgInfo.url} className="w-full h-full object-cover rounded-lg" />
-                    ) : (
-                      <ImageIcon size={18} />
-                    )}
+            <div className="h-px bg-neutral-800" />
+
+            {/* Background Media List */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
+                  <Video size={14} /> Backgrounds
+                </h3>
+              </div>
+
+              <div className="space-y-1">
+                <DndContext
+                  sensors={bgSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleBgDragEnd}
+                >
+                  <SortableContext
+                    items={backgrounds.map(b => b.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {backgrounds.map(bg => (
+                      <SortableBackgroundItem
+                        key={bg.id}
+                        item={bg}
+                        onRemove={removeBackground}
+                        onUpdate={updateBackground}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+
+                <label className="block w-full cursor-pointer group mt-2">
+                  <div className="p-3 rounded-lg border border-dashed border-neutral-700 group-hover:bg-neutral-800 transition flex items-center justify-center gap-2 text-sm text-neutral-400 group-hover:text-teal-400">
+                    <Plus size={16} />
+                    <span>Add Background</span>
+                    <input type="file" accept="video/*,image/*" multiple className="hidden" onChange={handleMediaUpload} />
                   </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-neutral-300 group-hover:text-white transition">Background Image</p>
-                    <p className="text-[10px] text-neutral-500">{bgInfo.name || "None selected"}</p>
-                  </div>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleBgUpload} />
                 </label>
               </div>
             </div>
@@ -415,10 +635,10 @@ export default function AudioVisualizerApp() {
                 ))}
               </div>
 
-              {/* Position Slider */}
+              {/* Visualizer Position */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center text-xs text-neutral-400">
-                  <span>{config.orientation === 'vertical' ? 'Horizontal Pos' : 'Vertical Pos'}</span>
+                  <span>Visualizer Position</span>
                   <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
                     <input
                       type="checkbox"
@@ -429,15 +649,41 @@ export default function AudioVisualizerApp() {
                     Vertical Mode
                   </label>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={config.position}
-                  onChange={(e) => setConfig({ ...config, position: parseInt(e.target.value) })}
-                  className="w-full accent-teal-500 h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer hover:bg-neutral-700"
-                />
+
+                {/* Preset buttons */}
+                <div className="grid grid-cols-4 gap-1 p-1 bg-neutral-950 rounded-lg border border-neutral-800">
+                  {(Object.keys(VISUALIZER_POSITION_PRESETS) as VisualizerPositionPreset[]).map((preset) => (
+                    <button
+                      key={preset}
+                      onClick={() => setConfig({ ...config, position: VISUALIZER_POSITION_PRESETS[preset], visualizerPosition: preset })}
+                      className={cn(
+                        "py-1.5 text-[10px] font-semibold rounded-md capitalize transition whitespace-nowrap",
+                        config.visualizerPosition === preset
+                          ? "bg-teal-500 text-black shadow-sm"
+                          : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"
+                      )}
+                    >
+                      {preset === 'lower-third' ? 'Lower ⅓' : preset.charAt(0).toUpperCase() + preset.slice(1)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Fine-tuning slider */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center text-[10px] text-neutral-500">
+                    <span>Fine-tune</span>
+                    <span>{config.position}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={config.position}
+                    onChange={(e) => setConfig({ ...config, position: parseInt(e.target.value), visualizerPosition: 'custom' })}
+                    className="w-full accent-teal-500 h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer hover:bg-neutral-700"
+                  />
+                </div>
               </div>
 
               {/* Title Settings */}
@@ -502,7 +748,7 @@ export default function AudioVisualizerApp() {
                 component={VisualizerComposition}
                 inputProps={{
                   audioTracks: audioTracks,
-                  bgImageUrl: bgInfo.url || undefined,
+                  backgrounds: backgrounds,
                   config: config
                 }}
                 durationInFrames={totalDuration || 1}
