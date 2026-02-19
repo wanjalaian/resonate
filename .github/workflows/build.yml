@@ -3,6 +3,7 @@ name: Build Desktop App
 on:
   push:
     branches: [main]
+    tags: ['v*'] # Trigger on version tags (e.g. v1.0.0)
   workflow_dispatch: # allow manual trigger from GitHub UI
 
 jobs:
@@ -35,7 +36,7 @@ jobs:
           npm_config_msvs_version: '2022'
 
       - name: Package Windows installer
-        run: npx electron-builder --win --x64 --publish never
+        run: npx electron-builder --win --x64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,7 +75,7 @@ jobs:
         run: npx @electron/rebuild -f -w better-sqlite3
 
       - name: Package macOS DMG
-        run: npx electron-builder --mac --x64 --arm64 --publish never
+        run: npx electron-builder --mac --x64 --arm64 --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Code signing disabled for now — add your Apple certs later

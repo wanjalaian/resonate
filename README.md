@@ -3,7 +3,16 @@
 **Turn your music into stunning videos automatically.**  
 Built with [Next.js](https://nextjs.org), [Remotion](https://www.remotion.dev), and [Tailwind CSS](https://tailwindcss.com).
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Platform](https://img.shields.io/badge/platform-win%20%7C%20mac%20%7C%20linux-lightgrey) ![Status](https://img.shields.io/badge/status-stable-success)
+![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Platform](https://img.shields.io/badge/platform-win%20%7C%20mac%20%7C%20linux-lightgrey) [![Download](https://img.shields.io/github/v/release/wanjalaian/resonate?label=Download&style=flat-square)](https://github.com/wanjalaian/resonate/releases/latest)
+
+---
+
+## 📥 Download Desktop App
+
+**[Get the latest version for Windows & macOS](https://github.com/wanjalaian/resonate/releases/latest)**
+
+- **Windows**: `.exe` installer
+- **macOS**: `.dmg` (Intel & Apple Silicon)
 
 ---
 
