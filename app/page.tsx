@@ -96,6 +96,98 @@ function SortableTrackItem({
   );
 }
 
+function TrimBar({
+  duration,
+  trimStart,
+  trimEnd,
+  onUpdate
+}: {
+  duration: number;
+  trimStart: number;
+  trimEnd: number;
+  onUpdate: (updates: { trimStart?: number; trimEnd?: number }) => void;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<'left' | 'right' | null>(null);
+
+  const startPct = (trimStart / duration) * 100;
+  const endPct = (trimEnd / duration) * 100;
+
+  const getSecFromMouseX = (clientX: number): number => {
+    if (!barRef.current) return 0;
+    const rect = barRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return parseFloat((ratio * duration).toFixed(2));
+  };
+
+  const onMouseDown = (side: 'left' | 'right') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = side;
+
+    const onMove = (me: MouseEvent) => {
+      const sec = getSecFromMouseX(me.clientX);
+      if (dragging.current === 'left') {
+        if (sec >= 0 && sec < trimEnd - 0.2) onUpdate({ trimStart: sec });
+      } else {
+        if (sec > trimStart + 0.2 && sec <= duration) onUpdate({ trimEnd: sec });
+      }
+    };
+    const onUp = () => {
+      dragging.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  return (
+    <div className="space-y-1">
+      {/* Timeline bar */}
+      <div
+        ref={barRef}
+        className="relative h-8 bg-neutral-950 rounded-lg overflow-visible select-none border border-neutral-800"
+      >
+        {/* Full clip background */}
+        <div className="absolute inset-0 rounded-lg bg-neutral-800/40" />
+
+        {/* Active trim region */}
+        <div
+          className="absolute top-0 bottom-0 bg-teal-500/20 border border-teal-500/50 rounded"
+          style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
+        />
+
+        {/* Left handle */}
+        <div
+          className="absolute top-0 bottom-0 w-3 bg-teal-400 rounded-l cursor-col-resize flex items-center justify-center group/h z-10"
+          style={{ left: `calc(${startPct}% - 6px)` }}
+          onMouseDown={onMouseDown('left')}
+        >
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+          <div className="w-0.5 h-3 bg-white/60 rounded-full ml-0.5" />
+        </div>
+
+        {/* Right handle */}
+        <div
+          className="absolute top-0 bottom-0 w-3 bg-teal-400 rounded-r cursor-col-resize flex items-center justify-center z-10"
+          style={{ right: `calc(${100 - endPct}% - 6px)` }}
+          onMouseDown={onMouseDown('right')}
+        >
+          <div className="w-0.5 h-3 bg-white/60 rounded-full" />
+          <div className="w-0.5 h-3 bg-white/60 rounded-full ml-0.5" />
+        </div>
+      </div>
+
+      {/* Time labels */}
+      <div className="flex justify-between items-center px-0.5">
+        <span className="text-[10px] font-mono text-teal-400">{trimStart.toFixed(2)}s</span>
+        <span className="text-[10px] text-neutral-600">{(trimEnd - trimStart).toFixed(2)}s selected</span>
+        <span className="text-[10px] font-mono text-teal-400">{trimEnd.toFixed(2)}s</span>
+      </div>
+    </div>
+  );
+}
+
 function SortableBackgroundItem({
   item,
   onRemove,
@@ -128,72 +220,65 @@ function SortableBackgroundItem({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "p-2 bg-neutral-900/60 hover:bg-neutral-900 rounded-lg border border-neutral-800 hover:border-neutral-700 transition mb-2 group relative"
+        "p-3 bg-neutral-900/60 hover:bg-neutral-900 rounded-xl border border-neutral-800 hover:border-neutral-700 transition mb-2 group relative"
       )}
     >
-      <div className="flex items-center gap-3 mb-2">
-        <div {...attributes} {...listeners} className="cursor-grab hover:text-teal-400 text-neutral-600 p-1">
-          <GripVertical size={16} />
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-3">
+        <div {...attributes} {...listeners} className="cursor-grab hover:text-teal-400 text-neutral-600 p-1 shrink-0">
+          <GripVertical size={14} />
         </div>
 
-        <div className="w-8 h-8 bg-neutral-800 rounded flex items-center justify-center text-neutral-500 shrink-0">
+        <div className="w-7 h-7 bg-neutral-800 rounded flex items-center justify-center text-neutral-500 shrink-0">
           {icon}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-neutral-300 truncate">{item.name}</p>
+          <p className="text-xs font-medium text-neutral-200 truncate">{item.name}</p>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[10px] text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded uppercase font-bold">{item.type}</span>
+            <span className="text-[10px] text-neutral-500 bg-neutral-800/80 px-1.5 py-0.5 rounded uppercase font-bold tracking-wide">{item.type}</span>
             {item.type === 'video' && (
-              <span className="text-[10px] text-neutral-500 font-mono">
-                {(item.trimEnd - item.trimStart).toFixed(1)}s
-              </span>
+              <span className="text-[10px] text-neutral-500 font-mono">{item.durationInSeconds.toFixed(1)}s total</span>
             )}
           </div>
         </div>
 
-        <button onClick={() => onRemove(item.id)} className="text-neutral-500 hover:text-red-400 p-1.5 hover:bg-neutral-800 rounded-md transition opacity-0 group-hover:opacity-100">
-          <Trash2 size={14} />
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
+          className="text-neutral-500 hover:text-red-400 p-1.5 hover:bg-neutral-800 rounded-lg transition shrink-0 z-20"
+        >
+          <Trash2 size={13} />
         </button>
       </div>
 
-      {/* Controls */}
+      {/* Trim bar — only for video */}
       {item.type === 'video' && (
-        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-neutral-800/50">
-          <div className="flex items-center gap-1.5">
-            <Scissors size={12} className="text-neutral-500" />
-            <div className="flex items-center gap-1 text-[10px]">
+        <div className="space-y-3">
+          <TrimBar
+            duration={item.durationInSeconds}
+            trimStart={item.trimStart}
+            trimEnd={item.trimEnd}
+            onUpdate={(updates) => onUpdate(item.id, updates)}
+          />
+
+          <label className="flex items-center gap-2 cursor-pointer w-fit">
+            <div className={cn(
+              "relative w-8 h-4 rounded-full transition-colors",
+              item.isBoomerang ? "bg-teal-500" : "bg-neutral-700"
+            )}>
+              <div className={cn(
+                "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
+                item.isBoomerang ? "translate-x-4" : "translate-x-0.5"
+              )} />
               <input
-                type="number"
-                value={item.trimStart}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0 && val < item.trimEnd) onUpdate(item.id, { trimStart: val });
-                }}
-                className="w-8 bg-neutral-800 text-neutral-300 rounded px-1 py-0.5 text-center focus:outline-none focus:ring-1 focus:ring-teal-500/50"
-              />
-              <span className="text-neutral-600">-</span>
-              <input
-                type="number"
-                value={item.trimEnd}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val > item.trimStart && val <= item.durationInSeconds) onUpdate(item.id, { trimEnd: val });
-                }}
-                step="0.1"
-                className="w-10 bg-neutral-800 text-neutral-300 rounded px-1 py-0.5 text-center focus:outline-none focus:ring-1 focus:ring-teal-500/50"
+                type="checkbox"
+                className="sr-only"
+                checked={item.isBoomerang}
+                onChange={(e) => onUpdate(item.id, { isBoomerang: e.target.checked })}
               />
             </div>
-          </div>
-
-          <label className="flex items-center gap-1.5 cursor-pointer justify-end">
-            <span className={cn("text-[10px] font-medium transition", item.isBoomerang ? "text-teal-400" : "text-neutral-500")}>Boomerang</span>
-            <input
-              type="checkbox"
-              checked={item.isBoomerang}
-              onChange={(e) => onUpdate(item.id, { isBoomerang: e.target.checked })}
-              className="accent-teal-500 h-3 w-3 rounded bg-neutral-800 border-neutral-700"
-            />
+            <span className={cn("text-[10px] font-semibold tracking-wide", item.isBoomerang ? "text-teal-400" : "text-neutral-500")}>BOOMERANG</span>
           </label>
         </div>
       )}
@@ -209,6 +294,13 @@ export default function AudioVisualizerApp() {
   const [showTimestamps, setShowTimestamps] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFileName, setExportFileName] = useState('visualizer-mix');
+  const [exportMetaTitle, setExportMetaTitle] = useState('');
+  const [exportMetaDesc, setExportMetaDesc] = useState('');
+  const [exportTimestamps, setExportTimestamps] = useState('');
 
   const playerRef = useRef<PlayerRef>(null);
 
@@ -375,10 +467,20 @@ export default function AudioVisualizerApp() {
   };
 
   const removeBackground = (id: string) => {
-    setBackgrounds(prev => prev.filter(b => b.id === id));
+    setBackgrounds(prev => prev.filter(b => b.id !== id));
   };
 
-  const handleExport = async () => {
+  const openExportModal = () => {
+    // Pre-fill timestamps from current playlist
+    setExportTimestamps(timestampText);
+    // Pre-fill title from first track if available
+    if (!exportMetaTitle && audioTracks.length > 0) {
+      setExportMetaTitle(audioTracks[0].name);
+    }
+    setShowExportModal(true);
+  };
+
+  const handleExport = async (fileName: string) => {
     setIsExporting(true);
     setExportProgress(0);
     try {
@@ -429,7 +531,7 @@ export default function AudioVisualizerApp() {
         if (job.status === 'done' && job.url) {
           const a = document.createElement('a');
           a.href = job.url;
-          a.download = `visualizer-mix.mp4`;
+          a.download = `${fileName || 'visualizer-mix'}.mp4`;
           a.click();
           break;
         }
@@ -442,6 +544,29 @@ export default function AudioVisualizerApp() {
       setIsExporting(false);
       setExportProgress(0);
     }
+  };
+
+  const handleExportConfirm = () => {
+    // Build and download metadata.txt
+    const lines: string[] = [];
+    if (exportMetaTitle) lines.push(`Title: ${exportMetaTitle}`);
+    if (exportMetaDesc) {
+      lines.push('');
+      lines.push(`Description:\n${exportMetaDesc}`);
+    }
+    if (exportTimestamps) {
+      lines.push('');
+      lines.push(`Timestamps:\n${exportTimestamps}`);
+    }
+
+    const metaBlob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const metaLink = document.createElement('a');
+    metaLink.href = URL.createObjectURL(metaBlob);
+    metaLink.download = `${exportFileName || 'visualizer-mix'}.metadata.txt`;
+    metaLink.click();
+
+    setShowExportModal(false);
+    handleExport(exportFileName);
   };
 
   const totalDuration = audioTracks.reduce((acc, t) => acc + t.durationInFrames, 0);
@@ -474,7 +599,7 @@ export default function AudioVisualizerApp() {
 
         {audioTracks.length > 0 && (
           <button
-            onClick={handleExport}
+            onClick={isExporting ? undefined : openExportModal}
             disabled={isExporting}
             className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:bg-neutral-200 transition flex items-center gap-2 disabled:opacity-80 disabled:cursor-wait min-w-[140px] justify-center"
           >
@@ -771,6 +896,111 @@ export default function AudioVisualizerApp() {
           )}
         </div>
       </div>
+
+      {/* Export Metadata Modal */}
+      {showExportModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowExportModal(false); }}
+        >
+          <div className="bg-neutral-900 border border-neutral-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 bg-gradient-to-br from-teal-500 to-purple-600 rounded-lg flex items-center justify-center">
+                  <Download size={14} className="text-white" />
+                </div>
+                <h2 className="text-sm font-bold text-white">Export Settings</h2>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="text-neutral-500 hover:text-white p-1.5 hover:bg-neutral-800 rounded-lg transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5 space-y-5">
+
+              {/* File Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Video File Name</label>
+                <div className="flex items-center bg-neutral-800 rounded-lg border border-neutral-700 focus-within:border-teal-500/60 transition overflow-hidden">
+                  <input
+                    type="text"
+                    value={exportFileName}
+                    onChange={(e) => setExportFileName(e.target.value)}
+                    placeholder="visualizer-mix"
+                    className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-neutral-600"
+                  />
+                  <span className="px-3 text-xs text-neutral-500 font-mono border-l border-neutral-700">.mp4</span>
+                </div>
+              </div>
+
+              {/* Metadata Title */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Metadata Title</label>
+                <input
+                  type="text"
+                  value={exportMetaTitle}
+                  onChange={(e) => setExportMetaTitle(e.target.value)}
+                  placeholder="e.g. Summer Vibes Mix 2024"
+                  className="w-full bg-neutral-800 border border-neutral-700 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-neutral-600 transition"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Description</label>
+                <textarea
+                  value={exportMetaDesc}
+                  onChange={(e) => setExportMetaDesc(e.target.value)}
+                  placeholder="Add a description for your video..."
+                  rows={3}
+                  className="w-full bg-neutral-800 border border-neutral-700 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-neutral-600 transition resize-none"
+                />
+              </div>
+
+              {/* Timestamps */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Timestamps</label>
+                  <span className="text-[10px] text-neutral-600">Auto-generated · editable</span>
+                </div>
+                <textarea
+                  value={exportTimestamps}
+                  onChange={(e) => setExportTimestamps(e.target.value)}
+                  rows={4}
+                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-xs text-neutral-300 font-mono focus:outline-none transition resize-none"
+                  placeholder="0:00 - Track Name"
+                />
+              </div>
+
+              <p className="text-[10px] text-neutral-600 text-center">
+                A <span className="text-neutral-400 font-mono">.metadata.txt</span> file will also be saved alongside your video.
+              </p>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center gap-3 px-6 py-4 border-t border-neutral-800">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-neutral-400 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExportConfirm}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-neutral-200 transition flex items-center justify-center gap-2"
+              >
+                <Download size={15} />
+                Export Video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -347,65 +347,80 @@ export const VisualizerComposition: React.FC<VisualizerCompositionProps> = ({
         return <>{elements}</>;
     };
 
-    // Re-implement Render logic to handle Boomerang properly (Forward then Backward placeholder)
     const renderBackgroundsRefined = () => {
-        if (backgrounds.length === 0) return <div className="absolute inset-0 bg-neutral-900" />;
+        if (backgrounds.length === 0) return null;
 
-        const elements = [];
+        const elements: React.ReactElement[] = [];
         let accumulatedFrame = 0;
 
-        // Loop enough times
-        while (accumulatedFrame < totalAudioDuration + 300) { // + buffer
+        // Pre-compute one cycle duration to know when to stop
+        const cycleDuration = backgrounds.reduce((acc, bg) => {
+            const secs = bg.type === 'image' ? 5 : Math.max(0.1, bg.trimEnd - bg.trimStart);
+            const frames = Math.round(secs * fps);
+            return acc + frames * (bg.isBoomerang && bg.type === 'video' ? 2 : 1);
+        }, 0);
+
+        if (cycleDuration === 0) return null;
+
+        const needed = totalAudioDuration + fps * 2; // small buffer beyond audio end
+
+        while (accumulatedFrame < needed) {
             for (const bg of backgrounds) {
-                // Forward
                 const durationSecs = bg.type === 'image' ? 5 : Math.max(0.1, bg.trimEnd - bg.trimStart);
                 const durationFrames = Math.round(durationSecs * fps);
 
+                // Forward pass
                 elements.push(
                     <Sequence
                         key={`fwd-${accumulatedFrame}`}
                         from={accumulatedFrame}
-                        durationInFrames={durationFrames}
+                        durationInFrames={durationFrames + 1} // +1 overlaps next clip by 1 frame → no gap
+                        layout="none"
                     >
-                        {bg.type === 'image' ? (
-                            <Img src={bg.url} className="w-full h-full object-cover" />
-                        ) : (
-                            <Video
-                                src={bg.url}
-                                startFrom={Math.round(bg.trimStart * fps)}
-                                endAt={Math.round(bg.trimEnd * fps)}
-                                className="w-full h-full object-cover"
-                                volume={0}
-                            />
-                        )}
+                        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                            {bg.type === 'image' ? (
+                                <Img src={bg.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                                <Video
+                                    src={bg.url}
+                                    startFrom={Math.round(bg.trimStart * fps)}
+                                    endAt={Math.round(bg.trimEnd * fps)}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    volume={0}
+                                />
+                            )}
+                        </div>
                     </Sequence>
                 );
                 accumulatedFrame += durationFrames;
 
-                // Backward (Boomerang)
+                // Boomerang reverse pass (same clip, just counted again — true reversal requires server-side)
                 if (bg.isBoomerang && bg.type === 'video') {
-                    // Placeholder: Play forward again for now (reversed is hard without pre-process)
-                    // Or maybe we can try playbackRate={-1}? (Docs: "must be positive")
                     elements.push(
                         <Sequence
                             key={`rev-${accumulatedFrame}`}
                             from={accumulatedFrame}
-                            durationInFrames={durationFrames}
+                            durationInFrames={durationFrames + 1}
+                            layout="none"
                         >
-                            <Video
-                                src={bg.url}
-                                startFrom={Math.round(bg.trimStart * fps)}
-                                endAt={Math.round(bg.trimEnd * fps)}
-                                className="w-full h-full object-cover"
-                                volume={0}
-                            // playbackRate={-1} // Not supported
-                            />
+                            <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                                <Video
+                                    src={bg.url}
+                                    startFrom={Math.round(bg.trimStart * fps)}
+                                    endAt={Math.round(bg.trimEnd * fps)}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    volume={0}
+                                />
+                            </div>
                         </Sequence>
                     );
                     accumulatedFrame += durationFrames;
                 }
+
+                if (accumulatedFrame >= needed) break;
             }
         }
+
         return <>{elements}</>;
     };
 
@@ -413,8 +428,30 @@ export const VisualizerComposition: React.FC<VisualizerCompositionProps> = ({
         ? audioTracks
         : (audioUrl ? [{ id: 'default', url: audioUrl, durationInFrames: 30 * 60 * 30, name: 'Audio Track' }] : []);
 
+    // Persistent "last frame" background to prevent any black flash between sequences
+    const firstBg = backgrounds[0];
+
     return (
-        <div className="absolute inset-0 w-full h-full bg-black">
+        <div style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', background: '#111' }}>
+            {/* Persistent fallback layer — always visible, shows first background media */}
+            {firstBg && (
+                <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                    {firstBg.type === 'image' ? (
+                        <Img src={firstBg.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                        <Video
+                            src={firstBg.url}
+                            startFrom={Math.round(firstBg.trimStart * fps)}
+                            endAt={Math.round(firstBg.trimEnd * fps)}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            volume={0}
+                            loop
+                        />
+                    )}
+                </div>
+            )}
+
+            {/* Looping sequence stack */}
             {renderBackgroundsRefined()}
 
             <Series>
