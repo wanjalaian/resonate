@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import QueueManager from '@/components/QueueManager';
 import { Player, PlayerRef } from '@remotion/player';
 import { getAudioDurationInSeconds } from '@remotion/media-utils';
-import { VisualizerComposition, VisualizerConfig, AudioTrack, VisualizerPositionPreset, VISUALIZER_POSITION_PRESETS, BackgroundMedia } from '@/components/VisualizerComposition';
+import { VisualizerComposition, VisualizerConfig, AudioTrack, VisualizerPositionPreset, VISUALIZER_POSITION_PRESETS, BackgroundMedia, GOOGLE_FONTS } from '@/components/VisualizerComposition';
 import {
   Play, Download, Upload, Music, Image as ImageIcon, Trash2, Plus, Film,
   Settings2, Volume2, Activity, Zap, GripVertical, Type, Video, LayoutTemplate, Loader2, Shuffle, Scissors, Repeat, X, ListVideo
@@ -317,7 +317,13 @@ export default function AudioVisualizerApp() {
     visualizerPosition: 'center',
     orientation: 'horizontal',
     showTitle: true,
-    titlePosition: 'center'
+    titlePosition: 'bottom-left',
+    titleFontFamily: 'Inter, sans-serif',
+    titleFontSize: 64,
+    titleBold: true,
+    titleItalic: false,
+    titleAllCaps: false,
+    titleLetterSpacing: 0,
   });
 
   const sensors = useSensors(
@@ -620,11 +626,20 @@ export default function AudioVisualizerApp() {
       {/* Header */}
       <header className="h-16 shrink-0 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur flex items-center justify-between px-6 z-20">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <Activity className="text-white w-5 h-5" />
-          </div>
-          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-purple-500">
-            Resonate
+          {/* Resonate logo mark (SVG) */}
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="32" height="32" rx="8" fill="url(#rg)" />
+            <path d="M6 16 Q9 9, 12 16 Q15 23, 18 16 Q21 9, 24 16" stroke="white" strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.95" />
+            <circle cx="26" cy="16" r="2" fill="white" opacity="0.7" />
+            <defs>
+              <linearGradient id="rg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#14b8a6" />
+                <stop offset="100%" stopColor="#a855f7" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <h1 style={{ fontFamily: '"Space Grotesk", sans-serif' }} className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-purple-400">
+            resonate
           </h1>
         </div>
 
@@ -867,19 +882,87 @@ export default function AudioVisualizerApp() {
                 </div>
 
                 {config.showTitle && (
-                  <div className="grid grid-cols-3 gap-1 w-24 ml-auto">
-                    <button onClick={() => setConfig({ ...config, titlePosition: 'top-left' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'top-left' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>TL</button>
-                    <div className="h-6"></div>
-                    <button onClick={() => setConfig({ ...config, titlePosition: 'top-right' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'top-right' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>TR</button>
+                  <>
+                    {/* Title position grid */}
+                    <div className="grid grid-cols-3 gap-1 w-24 ml-auto">
+                      <button onClick={() => setConfig({ ...config, titlePosition: 'top-left' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'top-left' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>TL</button>
+                      <div className="h-6"></div>
+                      <button onClick={() => setConfig({ ...config, titlePosition: 'top-right' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'top-right' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>TR</button>
+                      <div className="h-6"></div>
+                      <button onClick={() => setConfig({ ...config, titlePosition: 'center' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'center' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>C</button>
+                      <div className="h-6"></div>
+                      <button onClick={() => setConfig({ ...config, titlePosition: 'bottom-left' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'bottom-left' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>BL</button>
+                      <div className="h-6"></div>
+                      <button onClick={() => setConfig({ ...config, titlePosition: 'bottom-right' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'bottom-right' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>BR</button>
+                    </div>
 
-                    <div className="h-6"></div>
-                    <button onClick={() => setConfig({ ...config, titlePosition: 'center' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'center' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>C</button>
-                    <div className="h-6"></div>
+                    {/* ── Font controls ── */}
+                    <div className="space-y-3 pt-3 border-t border-neutral-800/60">
+                      <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Font</p>
 
-                    <button onClick={() => setConfig({ ...config, titlePosition: 'bottom-left' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'bottom-left' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>BL</button>
-                    <div className="h-6"></div>
-                    <button onClick={() => setConfig({ ...config, titlePosition: 'bottom-right' })} className={cn("h-6 rounded hover:bg-neutral-700 text-[10px]", config.titlePosition === 'bottom-right' ? "bg-teal-500 text-black font-bold" : "bg-neutral-800 text-neutral-400")}>BR</button>
-                  </div>
+                      {/* Font family picker */}
+                      <select
+                        value={config.titleFontFamily}
+                        onChange={(e) => setConfig({ ...config, titleFontFamily: e.target.value })}
+                        className="w-full bg-neutral-800 border border-neutral-700 focus:border-teal-500/60 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none transition appearance-none cursor-pointer"
+                        style={{ fontFamily: config.titleFontFamily }}
+                      >
+                        {GOOGLE_FONTS.map(f => (
+                          <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+                        ))}
+                      </select>
+
+                      {/* Size slider */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center text-[10px] text-neutral-500">
+                          <span>Size</span>
+                          <span className="font-mono">{config.titleFontSize}px</span>
+                        </div>
+                        <input type="range" min="24" max="120" step="2"
+                          value={config.titleFontSize}
+                          onChange={(e) => setConfig({ ...config, titleFontSize: parseInt(e.target.value) })}
+                          className="w-full accent-teal-500 h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Letter spacing */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center text-[10px] text-neutral-500">
+                          <span>Letter Spacing</span>
+                          <span className="font-mono">{config.titleLetterSpacing}</span>
+                        </div>
+                        <input type="range" min="-5" max="30" step="1"
+                          value={config.titleLetterSpacing}
+                          onChange={(e) => setConfig({ ...config, titleLetterSpacing: parseInt(e.target.value) })}
+                          className="w-full accent-teal-500 h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Style toggles */}
+                      <div className="flex gap-2">
+                        {([
+                          { key: 'titleBold', label: 'B', title: 'Bold', style: { fontWeight: 700 } },
+                          { key: 'titleItalic', label: 'I', title: 'Italic', style: { fontStyle: 'italic' } },
+                          { key: 'titleAllCaps', label: 'AA', title: 'All Caps', style: { letterSpacing: '0.05em' } },
+                        ] as const).map(({ key, label, title, style }) => (
+                          <button
+                            key={key}
+                            title={title}
+                            onClick={() => setConfig({ ...config, [key]: !config[key] })}
+                            className={cn(
+                              'flex-1 py-1.5 rounded-lg text-xs transition border',
+                              config[key]
+                                ? 'bg-teal-600 border-teal-500 text-white'
+                                : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:text-white'
+                            )}
+                            style={style}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
 

@@ -11,15 +11,35 @@ export const VISUALIZER_POSITION_PRESETS: Record<VisualizerPositionPreset, numbe
     'lower-third': 66,
 };
 
+export const GOOGLE_FONTS = [
+    { label: 'Inter', value: 'Inter, sans-serif', import: 'Inter:wght@400;700;900' },
+    { label: 'Bebas Neue', value: '"Bebas Neue", cursive', import: 'Bebas+Neue' },
+    { label: 'Montserrat', value: '"Montserrat", sans-serif', import: 'Montserrat:wght@400;700;900' },
+    { label: 'Oswald', value: '"Oswald", sans-serif', import: 'Oswald:wght@400;600;700' },
+    { label: 'Space Grotesk', value: '"Space Grotesk", sans-serif', import: 'Space+Grotesk:wght@400;700' },
+    { label: 'Playfair Display', value: '"Playfair Display", serif', import: 'Playfair+Display:wght@400;700;900' },
+    { label: 'Raleway', value: '"Raleway", sans-serif', import: 'Raleway:wght@400;700;900' },
+    { label: 'DM Sans', value: '"DM Sans", sans-serif', import: 'DM+Sans:wght@400;700' },
+    { label: 'Syne', value: '"Syne", sans-serif', import: 'Syne:wght@400;700;800' },
+    { label: 'Abril Fatface', value: '"Abril Fatface", cursive', import: 'Abril+Fatface' },
+];
+
 export interface VisualizerConfig {
     color: string;
     type: 'bars' | 'wave';
     sensitivity: number;
-    position: number; // 0 to 100 percentage (fine-tuning slider)
-    visualizerPosition: VisualizerPositionPreset | 'custom'; // preset or custom
+    position: number; // 0 to 100 percentage
+    visualizerPosition: VisualizerPositionPreset | 'custom';
     orientation: 'horizontal' | 'vertical';
     showTitle: boolean;
     titlePosition: 'top-left' | 'top-right' | 'center' | 'bottom-left' | 'bottom-right';
+    // Font customisation
+    titleFontFamily: string;   // CSS font-family string from GOOGLE_FONTS
+    titleFontSize: number;     // px for the track name
+    titleBold: boolean;
+    titleItalic: boolean;
+    titleAllCaps: boolean;
+    titleLetterSpacing: number; // em units * 100 (so 10 = 0.1em)
 }
 
 export interface AudioTrack {
@@ -101,32 +121,38 @@ const SingleTrackVisualizer: React.FC<{
         justifyContent: 'center',
     };
 
+    // Font helpers
+    const ff = config.titleFontFamily || 'Inter, sans-serif';
+    const fw = config.titleBold ? 800 : 400;
+    const fs = config.titleFontSize || 64;
+    const ls = `${(config.titleLetterSpacing ?? 0) / 100}em`;
+    const tt = config.titleAllCaps ? 'uppercase' : 'none';
+    const fi = config.titleItalic ? 'italic' : 'normal';
+
     // Title Positioning Logic
     const getTitleStyle = (): React.CSSProperties => {
         const base: React.CSSProperties = {
             position: 'absolute',
-            fontFamily: 'Inter, sans-serif',
-            textShadow: '0 4px 12px rgba(0,0,0,0.8)',
+            textShadow: '0 4px 18px rgba(0,0,0,0.9)',
             zIndex: 50,
-            maxWidth: '80%',
+            maxWidth: '82%',
             pointerEvents: 'none',
             display: 'flex',
             flexDirection: 'column',
-            gap: '0.5rem'
+            gap: '0.4rem',
         };
-
         switch (config.titlePosition) {
             case 'top-left':
-                return { ...base, top: '8%', left: '8%', alignItems: 'flex-start', textAlign: 'left' };
+                return { ...base, top: '8%', left: '6%', alignItems: 'flex-start', textAlign: 'left' };
             case 'top-right':
-                return { ...base, top: '8%', right: '8%', alignItems: 'flex-end', textAlign: 'right' };
+                return { ...base, top: '8%', right: '6%', alignItems: 'flex-end', textAlign: 'right' };
             case 'bottom-left':
-                return { ...base, bottom: '8%', left: '8%', alignItems: 'flex-start', textAlign: 'left' };
+                return { ...base, bottom: '8%', left: '6%', alignItems: 'flex-start', textAlign: 'left' };
             case 'bottom-right':
-                return { ...base, bottom: '8%', right: '8%', alignItems: 'flex-end', textAlign: 'right' };
+                return { ...base, bottom: '8%', right: '6%', alignItems: 'flex-end', textAlign: 'right' };
             case 'center':
             default:
-                return { ...base, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', alignItems: 'center', textAlign: 'center' };
+                return { ...base, top: '50%', left: '50%', transform: 'translate(-50%,-50%)', alignItems: 'center', textAlign: 'center' };
         }
     };
 
@@ -137,10 +163,30 @@ const SingleTrackVisualizer: React.FC<{
             {/* Title Overlay */}
             {config.showTitle && (
                 <div style={getTitleStyle()}>
-                    <span className="text-xl font-bold text-neutral-200 uppercase tracking-widest drop-shadow-md opacity-90">
-                        Now Playing:
+                    <span style={{
+                        fontFamily: ff,
+                        fontSize: Math.round(fs * 0.32),
+                        fontWeight: fw,
+                        fontStyle: fi,
+                        color: 'rgba(220,220,220,0.85)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.18em',
+                        textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+                    }}>
+                        Now Playing
                     </span>
-                    <h1 className="text-5xl font-extrabold text-white tracking-tighter shadow-black drop-shadow-2xl">
+                    <h1 style={{
+                        fontFamily: ff,
+                        fontSize: fs,
+                        fontWeight: fw,
+                        fontStyle: fi,
+                        textTransform: tt as any,
+                        letterSpacing: ls,
+                        color: '#FFFFFF',
+                        margin: 0,
+                        lineHeight: 1.1,
+                        textShadow: '0 4px 24px rgba(0,0,0,0.9)',
+                    }}>
                         {track.name}
                     </h1>
                 </div>
@@ -232,7 +278,13 @@ export const VisualizerComposition: React.FC<VisualizerCompositionProps> = ({
         visualizerPosition: 'center',
         orientation: 'horizontal',
         showTitle: true,
-        titlePosition: 'center'
+        titlePosition: 'bottom-left',
+        titleFontFamily: 'Inter, sans-serif',
+        titleFontSize: 64,
+        titleBold: true,
+        titleItalic: false,
+        titleAllCaps: false,
+        titleLetterSpacing: 0,
     },
 }) => {
     const { fps, durationInFrames } = useVideoConfig();

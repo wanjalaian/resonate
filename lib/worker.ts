@@ -204,7 +204,7 @@ async function renderJob(job: QueueJob) {
             concurrency: os.cpus().length,
             // @ts-ignore — Remotion supports this on newer versions
             hardwareAcceleration: encoder !== 'libx264' ? 'if-possible' : 'disabled',
-            chromiumOptions: { gl: 'angle', args: ['--allow-file-access-from-files'] },
+            chromiumOptions: { gl: 'angle' },
             onProgress: ({ progress }: { progress: number }) => {
                 queue.setProgress(id, 0.1 + progress * 0.9);
             },
