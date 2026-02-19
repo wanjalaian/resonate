@@ -20,21 +20,45 @@ let tray = null;
 // ── Next.js Server ────────────────────────────────────────────────────────────
 function startNextServer() {
     return new Promise((resolve, reject) => {
-        const cwd = DEV_MODE ? path.join(__dirname, '..') : path.join(process.resourcesPath, 'app');
-        const cmd = process.platform === 'win32' ? 'node.exe' : 'node';
-        const scriptPath = DEV_MODE
-            ? path.join(__dirname, '..', 'node_modules', '.bin', 'next')
-            : path.join(cwd, 'node_modules', '.bin', 'next');
+        const isProd = !DEV_MODE;
+        // In production, we are in resources/app.asar (virtual) or resources/app (unpacked).
+        // Standard Electron config puts everything in app.asar.
+        // spawn cannot use a virtual path for CWD.
+        // So we interpret the path relative to resourcesPath.
+        const resourcesPath = process.resourcesPath;
+        const appPath = isProd ? path.join(resourcesPath, 'app.asar') : path.join(__dirname, '..');
 
-        const args = DEV_MODE ? ['dev', '--webpack'] : ['start', '--port', String(PORT)];
+        // We use the bundled Node environment (Electron binary itself)
+        const executable = process.execPath;
 
-        console.log('[Electron] Starting Next.js with:', scriptPath, args.join(' '), 'cwd:', cwd);
+        // Path to the Next.js CLI JavaScript file (fs-patched, so it can be read from ASAR)
+        const scriptPath = isProd
+            ? path.join(appPath, 'node_modules', 'next', 'dist', 'bin', 'next')
+            : path.join(__dirname, '..', 'node_modules', 'next', 'dist', 'bin', 'next');
 
-        nextProcess = spawn(scriptPath, args, {
+        // Arguments for Next.js
+        // We pass 'appPath' as the directory argument to next start so it looks in the right place
+        const nextArgs = DEV_MODE
+            ? ['dev', '--webpack']
+            : ['start', appPath, '--port', String(PORT)];
+
+        // Spawn arguments: [scriptPath, ...nextArgs]
+        const spawnArgs = [scriptPath, ...nextArgs];
+
+        // Safe CWD: In prod, use resourcesPath (real dir). In dev, use project root.
+        const cwd = isProd ? resourcesPath : appPath;
+
+        console.log('[Electron] Starting Next.js with:', executable, spawnArgs.join(' '), 'cwd:', cwd);
+
+        nextProcess = spawn(executable, spawnArgs, {
             cwd,
             stdio: 'pipe',
-            env: { ...process.env, PORT: String(PORT) },
-            shell: true,
+            env: {
+                ...process.env,
+                PORT: String(PORT),
+                ELECTRON_RUN_AS_NODE: '1' // Crucial: Act as Node.js, not Electron app
+            },
+            shell: false, // Crucial: avoid /bin/sh ENOENT
         });
 
         nextProcess.stdout.on('data', (d) => {
@@ -46,9 +70,16 @@ function startNextServer() {
         });
 
         nextProcess.stderr.on('data', (d) => console.error('[Next ERR]', d.toString().trim()));
-        nextProcess.on('error', reject);
+        nextProcess.on('error', (err) => {
+            console.error('[Electron] Spawn error:', err);
+            reject(err);
+        });
         nextProcess.on('exit', (code) => {
             console.log('[Next] Server exited with code', code);
+            if (code !== 0 && code !== null) {
+                // If it crashes immediately, reject
+                reject(new Error(`Next.js exited with code ${code}`));
+            }
         });
 
         // Timeout fallback — poll for the server to be ready
