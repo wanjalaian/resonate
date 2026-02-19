@@ -24,7 +24,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit
 
       - name: Rebuild native modules for Electron (Windows)
         run: npx @electron/rebuild -f -w better-sqlite3
@@ -65,7 +65,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit
 
       - name: Rebuild native modules for Electron (macOS)
         run: npx @electron/rebuild -f -w better-sqlite3
