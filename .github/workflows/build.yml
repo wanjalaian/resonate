@@ -26,13 +26,13 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit
 
+      - name: Build Next.js
+        run: npm run build
+
       - name: Rebuild native modules for Electron (Windows)
         run: npx @electron/rebuild -f -w better-sqlite3
         env:
           npm_config_msvs_version: '2022'
-
-      - name: Build Next.js
-        run: npm run build
 
       - name: Package Windows installer
         run: npx electron-builder --win --x64 --publish never
@@ -67,11 +67,11 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit
 
-      - name: Rebuild native modules for Electron (macOS)
-        run: npx @electron/rebuild -f -w better-sqlite3
-
       - name: Build Next.js
         run: npm run build
+
+      - name: Rebuild native modules for Electron (macOS)
+        run: npx @electron/rebuild -f -w better-sqlite3
 
       - name: Package macOS DMG
         run: npx electron-builder --mac --x64 --arm64 --publish never
