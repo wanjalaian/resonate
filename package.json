@@ -21,6 +21,12 @@
     "directories": {
       "output": "dist-electron"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "wanjalaian",
+      "repo": "resonate",
+      "releaseType": "release"
+    },
     "files": [
       "electron/**/*",
       ".next/**/*",
