@@ -1,0 +1,89 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows — produces a .exe NSIS installer
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron (Windows)
+        run: npx @electron/rebuild -f -w better-sqlite3
+        env:
+          npm_config_msvs_version: '2022'
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Package Windows installer
+        run: npx electron-builder --win --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload .exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resonate-Windows-x64
+          path: dist-electron/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # macOS — produces a universal .dmg (Intel + Apple Silicon)
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS (.dmg)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules for Electron (macOS)
+        run: npx @electron/rebuild -f -w better-sqlite3
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Package macOS DMG
+        run: npx electron-builder --mac --x64 --arm64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing disabled for now — add your Apple certs later
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resonate-macOS
+          path: dist-electron/*.dmg
+          if-no-files-found: error
+          retention-days: 30

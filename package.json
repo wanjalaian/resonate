@@ -10,8 +10,9 @@
     "lint": "eslint",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && NODE_ENV=development electron .\"",
     "electron:build": "next build && electron-builder",
-    "electron:pack:mac": "next build && electron-builder --mac --universal",
-    "electron:pack:win": "next build && electron-builder --win --x64"
+    "electron:pack:mac": "next build && electron-builder --mac --x64 --arm64",
+    "electron:pack:win": "next build && electron-builder --win --x64",
+    "electron:rebuild": "electron-rebuild -f -w better-sqlite3"
   },
   "build": {
     "appId": "com.resonate.audiovisualizer",
@@ -31,6 +32,10 @@
       "app/api/**/*",
       "next.config.*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/bindings/**/*"
     ],
     "mac": {
       "category": "public.app-category.music",
@@ -93,6 +98,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "@electron/rebuild": "^3.7.1",
     "concurrently": "^9.2.1",
     "css-loader": "^5.2.7",
     "electron": "^40.6.0",
