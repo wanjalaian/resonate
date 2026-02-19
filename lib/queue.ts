@@ -27,14 +27,28 @@ export interface QueueJob {
 
 // --- DB setup ---
 const DB_DIR = path.join(process.cwd(), '.queue');
-if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-const DB_PATH = path.join(DB_DIR, 'jobs.sqlite');
 
 // Singleton across HMR
 const g = globalThis as any;
-if (!g.__queueDb) {
-    const db = new Database(DB_PATH);
+
+/**
+ * Lazy initialization of the database.
+ * Prevents build-time execution (and file locks) when importing this module.
+ */
+function getDb(): Database.Database {
+    if (g.__queueDb) return g.__queueDb;
+
+    if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+    const DB_PATH = path.join(DB_DIR, 'jobs.sqlite');
+
+    // Timeout allows waiting for lock slightly, but lazy init prevents
+    // the build process from grabbing it unnecessarily.
+    const db = new Database(DB_PATH, { timeout: 5000 });
+
+    // WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
+
+    // Create table if needed
     db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
       id            TEXT PRIMARY KEY,
@@ -51,21 +65,31 @@ if (!g.__queueDb) {
       encoderUsed   TEXT
     )
   `);
+
     g.__queueDb = db;
+    return db;
 }
 
-const db: Database.Database = g.__queueDb;
+// Helper to prepare statement - lazy
+function prep(sql: string) {
+    return (params: any) => getDb().prepare(sql).run(params);
+}
+// Helper for queries
+function query(sql: string) {
+    return {
+        get: (params?: any) => getDb().prepare(sql).get(params),
+        all: (params?: any) => getDb().prepare(sql).all(params),
+        run: (params?: any) => getDb().prepare(sql).run(params),
+    };
+}
 
-// --- Prepared statements ---
+// --- Prepared statements lazy wrappers ---
 const stmts = {
-    insert: db.prepare(`
-    INSERT INTO jobs (id, label, status, progress, createdAt, payload)
-    VALUES (@id, @label, @status, @progress, @createdAt, @payload)
-  `),
-    getById: db.prepare('SELECT * FROM jobs WHERE id = ?'),
-    getAll: db.prepare('SELECT * FROM jobs ORDER BY createdAt DESC'),
-    getPending: db.prepare("SELECT * FROM jobs WHERE status = 'pending' ORDER BY createdAt ASC LIMIT 1"),
-    update: db.prepare(`
+    insert: `INSERT INTO jobs (id, label, status, progress, createdAt, payload) VALUES (@id, @label, @status, @progress, @createdAt, @payload)`,
+    getById: 'SELECT * FROM jobs WHERE id = ?',
+    getAll: 'SELECT * FROM jobs ORDER BY createdAt DESC',
+    getPending: "SELECT * FROM jobs WHERE status = 'pending' ORDER BY createdAt ASC LIMIT 1",
+    update: `
     UPDATE jobs SET
       status = @status,
       progress = @progress,
@@ -76,10 +100,10 @@ const stmts = {
       error = @error,
       encoderUsed = @encoderUsed
     WHERE id = @id
-  `),
-    delete: db.prepare('DELETE FROM jobs WHERE id = ?'),
-    setStatus: db.prepare('UPDATE jobs SET status = @status WHERE id = @id'),
-    setProgress: db.prepare('UPDATE jobs SET progress = @progress, status = @status WHERE id = @id'),
+  `,
+    delete: 'DELETE FROM jobs WHERE id = ?',
+    setStatus: 'UPDATE jobs SET status = @status WHERE id = @id',
+    setProgress: 'UPDATE jobs SET progress = @progress, status = @status WHERE id = @id',
 };
 
 // --- Queue API ---
@@ -93,27 +117,27 @@ export const queue = {
             createdAt: Date.now(),
             payload: JSON.stringify(payload),
         };
-        stmts.insert.run(job);
+        query(stmts.insert).run(job);
         return job;
     },
 
     get(id: string): QueueJob | undefined {
-        return stmts.getById.get(id) as QueueJob | undefined;
+        return query(stmts.getById).get(id) as QueueJob | undefined;
     },
 
     getAll(): QueueJob[] {
-        return stmts.getAll.all() as QueueJob[];
+        return query(stmts.getAll).all() as QueueJob[];
     },
 
     nextPending(): QueueJob | undefined {
-        return stmts.getPending.get() as QueueJob | undefined;
+        return query(stmts.getPending).get() as QueueJob | undefined;
     },
 
     update(id: string, updates: Partial<QueueJob>) {
         const existing = queue.get(id);
         if (!existing) return;
         const merged = { ...existing, ...updates };
-        stmts.update.run({
+        query(stmts.update).run({
             id,
             status: merged.status,
             progress: merged.progress,
@@ -127,18 +151,18 @@ export const queue = {
     },
 
     setProgress(id: string, progress: number) {
-        stmts.setProgress.run({ id, progress, status: 'rendering' });
+        query(stmts.setProgress).run({ id, progress, status: 'rendering' });
     },
 
     cancel(id: string) {
-        stmts.setStatus.run({ id, status: 'cancelled' });
+        query(stmts.setStatus).run({ id, status: 'cancelled' });
     },
 
     delete(id: string) {
-        stmts.delete.run(id);
+        query(stmts.delete).run(id);
     },
 
     clear() {
-        db.exec("DELETE FROM jobs WHERE status IN ('done','error','cancelled')");
+        getDb().exec("DELETE FROM jobs WHERE status IN ('done','error','cancelled')");
     },
 };
