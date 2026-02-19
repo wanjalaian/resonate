@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useMemo, useRef } from 'react';
+import QueueManager from '@/components/QueueManager';
 import { Player, PlayerRef } from '@remotion/player';
 import { getAudioDurationInSeconds } from '@remotion/media-utils';
 import { VisualizerComposition, VisualizerConfig, AudioTrack, VisualizerPositionPreset, VISUALIZER_POSITION_PRESETS, BackgroundMedia } from '@/components/VisualizerComposition';
 import {
   Play, Download, Upload, Music, Image as ImageIcon, Trash2, Plus, Film,
-  Settings2, Volume2, Activity, Zap, GripVertical, Type, Video, LayoutTemplate, Loader2, Shuffle, Scissors, Repeat, X
+  Settings2, Volume2, Activity, Zap, GripVertical, Type, Video, LayoutTemplate, Loader2, Shuffle, Scissors, Repeat, X, ListVideo
 } from 'lucide-react';
 import { getVideoMetadata } from '@remotion/media-utils';
 import { cn } from '@/lib/utils';
@@ -298,9 +299,13 @@ export default function AudioVisualizerApp() {
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFileName, setExportFileName] = useState('visualizer-mix');
+  const [exportJobLabel, setExportJobLabel] = useState('');
   const [exportMetaTitle, setExportMetaTitle] = useState('');
   const [exportMetaDesc, setExportMetaDesc] = useState('');
   const [exportTimestamps, setExportTimestamps] = useState('');
+
+  // Queue Manager panel
+  const [showQueue, setShowQueue] = useState(false);
 
   const playerRef = useRef<PlayerRef>(null);
 
@@ -471,12 +476,9 @@ export default function AudioVisualizerApp() {
   };
 
   const openExportModal = () => {
-    // Pre-fill timestamps from current playlist
     setExportTimestamps(timestampText);
-    // Pre-fill title from first track if available
-    if (!exportMetaTitle && audioTracks.length > 0) {
-      setExportMetaTitle(audioTracks[0].name);
-    }
+    if (!exportMetaTitle && audioTracks.length > 0) setExportMetaTitle(audioTracks[0].name);
+    if (!exportJobLabel && audioTracks.length > 0) setExportJobLabel(audioTracks[0].name);
     setShowExportModal(true);
   };
 
@@ -546,25 +548,54 @@ export default function AudioVisualizerApp() {
     }
   };
 
-  const handleExportConfirm = () => {
-    // Build and download metadata.txt
+  const buildFormData = async () => {
+    const formData = new FormData();
+    formData.append('config', JSON.stringify(config));
+    const tracksMeta = audioTracks.map(t => ({ id: t.id, name: t.name, durationInFrames: t.durationInFrames }));
+    formData.append('tracks', JSON.stringify(tracksMeta));
+    for (const t of audioTracks) {
+      const blob = await fetch(t.url).then(r => r.blob());
+      formData.append('files', blob, t.id);
+    }
+    const backgroundsMeta = backgrounds.map(b => ({ ...b }));
+    formData.append('backgrounds', JSON.stringify(backgroundsMeta));
+    for (const bg of backgrounds) {
+      const blob = await fetch(bg.url).then(r => r.blob());
+      formData.append('bgFiles', blob, bg.id);
+    }
+    return formData;
+  };
+
+  const addToQueue = async () => {
+    // download metadata.txt
+    downloadMetadata();
+    setShowExportModal(false);
+    try {
+      const formData = await buildFormData();
+      formData.append('label', exportJobLabel || exportFileName || 'Untitled Mix');
+      const res = await fetch('/api/queue/add', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to queue');
+      setShowQueue(true); // open queue panel to show it's been added
+    } catch (e: any) {
+      alert('Queue failed: ' + e.message);
+    }
+  };
+
+  const downloadMetadata = () => {
     const lines: string[] = [];
     if (exportMetaTitle) lines.push(`Title: ${exportMetaTitle}`);
-    if (exportMetaDesc) {
-      lines.push('');
-      lines.push(`Description:\n${exportMetaDesc}`);
-    }
-    if (exportTimestamps) {
-      lines.push('');
-      lines.push(`Timestamps:\n${exportTimestamps}`);
-    }
+    if (exportMetaDesc) { lines.push(''); lines.push(`Description:\n${exportMetaDesc}`); }
+    if (exportTimestamps) { lines.push(''); lines.push(`Timestamps:\n${exportTimestamps}`); }
+    if (lines.length === 0) return;
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${exportFileName || 'visualizer-mix'}.metadata.txt`;
+    a.click();
+  };
 
-    const metaBlob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const metaLink = document.createElement('a');
-    metaLink.href = URL.createObjectURL(metaBlob);
-    metaLink.download = `${exportFileName || 'visualizer-mix'}.metadata.txt`;
-    metaLink.click();
-
+  const handleExportConfirm = () => {
+    downloadMetadata();
     setShowExportModal(false);
     handleExport(exportFileName);
   };
@@ -598,22 +629,31 @@ export default function AudioVisualizerApp() {
         </div>
 
         {audioTracks.length > 0 && (
-          <button
-            onClick={isExporting ? undefined : openExportModal}
-            disabled={isExporting}
-            className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:bg-neutral-200 transition flex items-center gap-2 disabled:opacity-80 disabled:cursor-wait min-w-[140px] justify-center"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                <span>{Math.round(exportProgress * 100)}%</span>
-              </>
-            ) : (
-              <>
-                <Download size={16} /> Export
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowQueue(true)}
+              className="relative p-2 rounded-full text-neutral-400 hover:text-white hover:bg-neutral-800 transition"
+              title="Render Queue"
+            >
+              <ListVideo size={18} />
+            </button>
+            <button
+              onClick={isExporting ? undefined : openExportModal}
+              disabled={isExporting}
+              className="bg-white text-black px-4 py-1.5 rounded-full text-sm font-bold hover:bg-neutral-200 transition flex items-center gap-2 disabled:opacity-80 disabled:cursor-wait min-w-[140px] justify-center"
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>{Math.round(exportProgress * 100)}%</span>
+                </>
+              ) : (
+                <>
+                  <Download size={16} /> Export
+                </>
+              )}
+            </button>
+          </div>
         )}
       </header>
 
@@ -923,6 +963,19 @@ export default function AudioVisualizerApp() {
             {/* Modal Body */}
             <div className="px-6 py-5 space-y-5">
 
+              {/* Job Label (for queue) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Mix Label</label>
+                <input
+                  type="text"
+                  value={exportJobLabel}
+                  onChange={(e) => setExportJobLabel(e.target.value)}
+                  placeholder="e.g. Summer Vibes — Episode 3"
+                  className="w-full bg-neutral-800 border border-neutral-700 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-neutral-600 transition"
+                />
+                <p className="text-[10px] text-neutral-600">Shown in the render queue to identify this job.</p>
+              </div>
+
               {/* File Name */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Video File Name</label>
@@ -982,25 +1035,35 @@ export default function AudioVisualizerApp() {
               </p>
             </div>
 
-            {/* Modal Footer */}
+            {/* Modal Footer — two actions */}
             <div className="flex items-center gap-3 px-6 py-4 border-t border-neutral-800">
               <button
                 onClick={() => setShowExportModal(false)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-neutral-400 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition"
+                className="py-2.5 px-4 rounded-xl text-sm font-semibold text-neutral-400 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition"
               >
                 Cancel
+              </button>
+              <button
+                onClick={addToQueue}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-teal-300 border border-teal-700 bg-teal-900/20 hover:bg-teal-900/40 transition flex items-center justify-center gap-2"
+              >
+                <ListVideo size={15} />
+                Add to Queue
               </button>
               <button
                 onClick={handleExportConfirm}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold text-black bg-white hover:bg-neutral-200 transition flex items-center justify-center gap-2"
               >
                 <Download size={15} />
-                Export Video
+                Render Now
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Queue Manager Panel */}
+      <QueueManager open={showQueue} onClose={() => setShowQueue(false)} />
     </div>
   );
 }

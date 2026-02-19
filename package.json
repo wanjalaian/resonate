@@ -17,6 +17,8 @@
     "@remotion/player": "^4.0.410",
     "@remotion/renderer": "^4.0.410",
     "@remotion/zod-types": "^4.0.410",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.6.2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
