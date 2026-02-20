@@ -42,7 +42,10 @@
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
       "node_modules/bindings/**/*",
-      "node_modules/@remotion/compositor-*/**/*"
+      "node_modules/@remotion/compositor-*/**/*",
+      "remotion/**/*",
+      "components/**/*",
+      "lib/**/*"
     ],
     "mac": {
       "category": "public.app-category.music",

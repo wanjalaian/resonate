@@ -35,15 +35,19 @@ function detectHWEncoder(): HWEncoder {
 }
 
 function findFfmpeg(): string | null {
-    const appDir = fs.existsSync(path.join(process.cwd(), 'app.asar')) ? path.join(process.cwd(), 'app.asar') : process.cwd();
+    const resourceBase = process.cwd();
+    const asarUnpacked = path.join(resourceBase, 'app.asar.unpacked');
+    const appDir = fs.existsSync(path.join(resourceBase, 'app.asar')) ? path.join(resourceBase, 'app.asar') : resourceBase;
+    // Compositor binaries are asarUnpacked, so check there first
+    const binBase = fs.existsSync(asarUnpacked) ? asarUnpacked : appDir;
     // Check remotion's bundled ffmpeg first
     const candidates = [
-        path.join(appDir, 'node_modules/@remotion/compositor-linux-x64/build/remotion'),
+        path.join(binBase, 'node_modules/@remotion/compositor-linux-x64/build/remotion'),
         // macOS
-        path.join(appDir, 'node_modules/@remotion/compositor-darwin-arm64/build/remotion'),
-        path.join(appDir, 'node_modules/@remotion/compositor-darwin-x64/build/remotion'),
+        path.join(binBase, 'node_modules/@remotion/compositor-darwin-arm64/build/remotion'),
+        path.join(binBase, 'node_modules/@remotion/compositor-darwin-x64/build/remotion'),
         // Windows
-        path.join(appDir, 'node_modules/@remotion/compositor-win32-x64/build/remotion.exe'),
+        path.join(binBase, 'node_modules/@remotion/compositor-win32-x64/build/remotion.exe'),
         // Fallback to system PATH
         'ffmpeg',
     ];
@@ -162,13 +166,20 @@ async function renderJob(job: QueueJob) {
         const inputProps = { audioTracks, backgrounds, config };
 
         // ── Bundle ─────────────────────────────────────────────────────────────
-        const appDir = fs.existsSync(path.join(process.cwd(), 'app.asar')) ? path.join(process.cwd(), 'app.asar') : process.cwd();
-        const entryPoint = path.join(appDir, 'remotion/index.ts');
+        const resourceBase = process.cwd();
+        const asarUnpacked = path.join(resourceBase, 'app.asar.unpacked');
+        const appDir = fs.existsSync(path.join(resourceBase, 'app.asar'))
+            ? path.join(resourceBase, 'app.asar')
+            : resourceBase;
+        // Remotion source files must be on real filesystem (not inside asar)
+        // In packaged builds, asarUnpack extracts them to app.asar.unpacked/
+        const entryBase = fs.existsSync(asarUnpacked) ? asarUnpacked : resourceBase;
+        const entryPoint = path.join(entryBase, 'remotion/index.ts');
         const bundleLocation = await bundle({
             entryPoint,
             webpackOverride: (cfg: any) => {
                 if (!cfg.resolve) cfg.resolve = {};
-                cfg.resolve.alias = { ...(cfg.resolve.alias || {}), '@': appDir };
+                cfg.resolve.alias = { ...(cfg.resolve.alias || {}), '@': entryBase };
                 if (!cfg.module) cfg.module = { rules: [] };
                 cfg.module.rules = cfg.module.rules?.filter((r: any) =>
                     !(r && typeof r === 'object' && r.test && r.test.toString().includes('css'))

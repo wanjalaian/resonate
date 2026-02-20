@@ -118,7 +118,11 @@ export async function POST(req: NextRequest) {
                 };
 
                 // Bundle
-                const entryPoint = path.join(process.cwd(), 'remotion/index.ts');
+                const resourceBase = process.cwd();
+                const asarUnpacked = path.join(resourceBase, 'app.asar.unpacked');
+                // Remotion source files must be on real filesystem (not inside asar)
+                const entryBase = fs.existsSync(asarUnpacked) ? asarUnpacked : resourceBase;
+                const entryPoint = path.join(entryBase, 'remotion/index.ts');
 
                 const bundleLocation = await bundle({
                     entryPoint,
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
                         if (!config.resolve) config.resolve = {};
                         config.resolve.alias = {
                             ...(config.resolve.alias || {}),
-                            '@': process.cwd(),
+                            '@': entryBase,
                         };
 
                         // Explicitly add CSS rule for Tailwind v4
