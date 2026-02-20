@@ -3,7 +3,7 @@
  * Import this module once (e.g. in the API route) to start the worker loop.
  */
 import path from 'path';
-import { writeFile, mkdir, rm } from 'fs/promises';
+import { writeFile, mkdir, rm, readdir } from 'fs/promises';
 import fs from 'fs';
 import os from 'os';
 import http from 'http';
@@ -35,12 +35,15 @@ function detectHWEncoder(): HWEncoder {
 }
 
 function findFfmpeg(): string | null {
+    const appDir = fs.existsSync(path.join(process.cwd(), 'app.asar')) ? path.join(process.cwd(), 'app.asar') : process.cwd();
     // Check remotion's bundled ffmpeg first
     const candidates = [
-        path.join(process.cwd(), 'node_modules/@remotion/compositor-linux-x64/build/remotion'),
+        path.join(appDir, 'node_modules/@remotion/compositor-linux-x64/build/remotion'),
         // macOS
-        path.join(process.cwd(), 'node_modules/@remotion/compositor-darwin-arm64/build/remotion'),
-        path.join(process.cwd(), 'node_modules/@remotion/compositor-darwin-x64/build/remotion'),
+        path.join(appDir, 'node_modules/@remotion/compositor-darwin-arm64/build/remotion'),
+        path.join(appDir, 'node_modules/@remotion/compositor-darwin-x64/build/remotion'),
+        // Windows
+        path.join(appDir, 'node_modules/@remotion/compositor-win32-x64/build/remotion.exe'),
         // Fallback to system PATH
         'ffmpeg',
     ];
@@ -111,7 +114,7 @@ async function renderJob(job: QueueJob) {
 
     try {
         const { bundle } = await import('@remotion/bundler');
-        const { renderMedia, selectComposition } = await import('@remotion/renderer');
+        const { renderMedia, selectComposition, stitchFramesToVideo } = await import('@remotion/renderer');
 
         // ── Write audio files ──────────────────────────────────────────────────
         const fileMap: Record<string, string> = {};
@@ -159,12 +162,13 @@ async function renderJob(job: QueueJob) {
         const inputProps = { audioTracks, backgrounds, config };
 
         // ── Bundle ─────────────────────────────────────────────────────────────
-        const entryPoint = path.join(process.cwd(), 'remotion/index.ts');
+        const appDir = fs.existsSync(path.join(process.cwd(), 'app.asar')) ? path.join(process.cwd(), 'app.asar') : process.cwd();
+        const entryPoint = path.join(appDir, 'remotion/index.ts');
         const bundleLocation = await bundle({
             entryPoint,
             webpackOverride: (cfg: any) => {
                 if (!cfg.resolve) cfg.resolve = {};
-                cfg.resolve.alias = { ...(cfg.resolve.alias || {}), '@': process.cwd() };
+                cfg.resolve.alias = { ...(cfg.resolve.alias || {}), '@': appDir };
                 if (!cfg.module) cfg.module = { rules: [] };
                 cfg.module.rules = cfg.module.rules?.filter((r: any) =>
                     !(r && typeof r === 'object' && r.test && r.test.toString().includes('css'))
@@ -180,35 +184,136 @@ async function renderJob(job: QueueJob) {
             },
         });
 
-        queue.setProgress(id, 0.1);
+        // ── Render Strategy: Image Sequence (Resume Capability) ────────────────
+        // We use a persistent frames directory so if the worker crashes, we resume.
+        // The tempDir is ephemeral (OS generic), but for resume we want a stable path.
+        // Actually, let's use a subfolder in the project root's .queue folder to carry over restarts.
+        const jobsDir = path.join(process.cwd(), '.queue', 'frames');
+        const framesDir = path.join(jobsDir, id);
+        await mkdir(framesDir, { recursive: true });
+
+        // Check for existing frames
+        const existingFiles = await readdir(framesDir).catch(() => []);
+        const frameFiles = existingFiles.filter(f => /^frame-\d+\.jpeg$/.test(f));
+
+        let startFrame = 0;
+        if (frameFiles.length > 0) {
+            // Find max frame number
+            const maxFrame = Math.max(...frameFiles.map(f => parseInt(f.match(/(\d+)/)![1])));
+            // Resume from next frame. But simple verification: do we have 0..max contiguous?
+            // For robustness, simply resume from max + 1. Remotion will overwrite if we overlap?
+            // Actually, safest is to start from (count) if we trust they are 0..N-1.
+            // Let's use max+1.
+            startFrame = maxFrame + 1;
+            console.log(`[Worker] Resuming job ${id} from frame ${startFrame} (${frameFiles.length} frames found)`);
+        }
 
         const composition = await selectComposition({ serveUrl: bundleLocation, id: 'Visualizer', inputProps });
         const totalDuration = rawTracks.reduce((acc: number, t: any) => acc + (t.durationInFrames || 0), 0);
-        if (totalDuration > 0) (composition as any).durationInFrames = totalDuration;
+        // Ensure accurate duration
+        const durationInFrames = totalDuration > 0 ? totalDuration : 300; // default 10s
+        (composition as any).durationInFrames = durationInFrames;
 
-        // ── Output ─────────────────────────────────────────────────────────────
+        const endFrame = durationInFrames - 1;
+
+        if (startFrame <= endFrame) {
+            console.log(`[Worker] Rendering frames ${startFrame} to ${endFrame} for job ${id}`);
+            queue.update(id, { status: 'rendering', progress: startFrame / durationInFrames });
+
+            await renderMedia({
+                composition,
+                serveUrl: bundleLocation,
+                codec: 'h264', // ignored for images, but required param
+                outputLocation: path.join(framesDir, 'frame-{frame}.jpeg'),
+                imageFormat: 'jpeg',
+                inputProps,
+                frameRange: [startFrame, endFrame],
+                concurrency: os.cpus().length,
+                chromiumOptions: { gl: 'angle' },
+                onProgress: ({ progress }) => {
+                    // progress here is 0..1 for the *current range*. 
+                    // We need global progress: (startFrame + (progress * (endFrame - startFrame))) / total
+                    const rangeLength = endFrame - startFrame + 1;
+                    const absoluteProgress = (startFrame + (progress * rangeLength)) / durationInFrames;
+                    queue.setProgress(id, absoluteProgress);
+                },
+            });
+        } else {
+            console.log(`[Worker] Job ${id} already has all frames rendered. Skipping to stitch.`);
+        }
+
+        // ── Stitching ──────────────────────────────────────────────────────────
+        queue.update(id, { status: 'rendering', progress: 0.99 });
+        console.log(`[Worker] Stitching frames for job ${id}...`);
+
         const outputFileName = `render-${id}.mp4`;
         const publicDir = path.join(process.cwd(), 'public');
         const outputLocation = path.join(publicDir, outputFileName);
 
+        const assets = Array.from({ length: durationInFrames }).map((_, i) =>
+            path.join(framesDir, `frame-${i}.jpeg`)
+        );
+
         const encoder = getEncoder();
         queue.update(id, { encoderUsed: encoder });
-        console.log(`[Worker] Job ${id} using encoder: ${encoder}`);
 
+        // Use direct ffmpeg command for stitching (more robust than internal API)
+        const ffmpegBin = findFfmpeg() || 'ffmpeg';
+        const fps = composition.fps || 30;
+
+        // Input pattern: frame-%d.jpeg (handles frame-0.jpeg, frame-1.jpeg etc)
+        // Note: ffmpeg expects %d to match 0, 1, 2...
+        const inputPattern = path.join(framesDir, 'frame-%d.jpeg');
+
+        // Construct command
+        // -y: overwrite output
+        // -framerate: input fps
+        // -i: input pattern
+        // -c:v: video codec (hw accel if detected)
+        // -pix_fmt: yuv420p for compatibility
+        // -shortest: limit by shortest stream (only video here, but good practice)
+        /* 
+           Hardware Encoders:
+           h264_videotoolbox (Mac) -> -c:v h264_videotoolbox -b:v 5M
+           h264_nvenc (NVIDIA) -> -c:v h264_nvenc -preset p4
+           h264_amf (AMD) -> -c:v h264_amf
+           h264_qsv (Intel) -> -c:v h264_qsv
+           libx264 (CPU) -> -c:v libx264 -preset fast -crf 23
+        */
+
+        let codecArgs = '-c:v libx264 -preset fast -crf 23';
+        if (encoder === 'h264_videotoolbox') codecArgs = '-c:v h264_videotoolbox -b:v 8M -allow_sw 1';
+        if (encoder === 'h264_nvenc') codecArgs = '-c:v h264_nvenc -preset p4 -b:v 5M';
+        if (encoder === 'h264_amf') codecArgs = '-c:v h264_amf -b:v 5M';
+        if (encoder === 'h264_qsv') codecArgs = '-c:v h264_qsv -b:v 5M';
+
+        // Add audio from the composition? 
+        // Wait, we rendered images only. Audio is missing!
+        // We need to render audio separately or add it here.
+        // Remotion's renderMedia usually handles audio+video.
+        // But renderFrames/images doesn't output audio.
+        // So we need to render audio to a file first? Or use renderMedia to MP3/WAV?
+        // Actually, renderMedia({ ... }) to audio file is possible.
+        // Let's first stitch video. Then if audio exists, we merge?
+        // Or simpler: Just render audio once at the start (fast) to `audio.mp3`.
+        // Then input it to ffmpeg.
+
+        // For visualizer, audio is critical.
+        // Let's render audio now (it's fast).
+        const audioOutput = path.join(tempDir, 'audio.mp3');
         await renderMedia({
             composition,
             serveUrl: bundleLocation,
-            codec: 'h264',
-            outputLocation,
+            codec: 'mp3',
+            outputLocation: audioOutput,
             inputProps,
             concurrency: os.cpus().length,
-            // @ts-ignore — Remotion supports this on newer versions
-            hardwareAcceleration: encoder !== 'libx264' ? 'if-possible' : 'disabled',
-            chromiumOptions: { gl: 'angle' },
-            onProgress: ({ progress }: { progress: number }) => {
-                queue.setProgress(id, 0.1 + progress * 0.9);
-            },
         });
+
+        const cmd = `"${ffmpegBin}" -y -framerate ${fps} -i "${inputPattern}" -i "${audioOutput}" ${codecArgs} -pix_fmt yuv420p -shortest "${outputLocation}"`;
+
+        console.log(`[Worker] Executing ffmpeg: ${cmd}`);
+        execSync(cmd, { stdio: 'inherit' });
 
         queue.update(id, {
             status: 'done',
@@ -217,6 +322,9 @@ async function renderJob(job: QueueJob) {
             outputFileName,
             completedAt: Date.now(),
         });
+
+        // Cleanup frames (only on success)
+        await rm(framesDir, { recursive: true, force: true });
         console.log(`[Worker] Job ${id} done ✓`);
 
     } finally {
