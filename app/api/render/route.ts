@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
                 // --- START LOCAL ASSET SERVER ---
                 // We serve the tempDir via HTTP to avoid file:// CORS issues in headless chrome
                 server = http.createServer((req, res) => {
-                    // Remove leading slash
-                    const fileName = (req.url || '/').substring(1);
+                    const parsedUrl = new URL(req.url || '/', 'http://localhost');
+                    const fileName = parsedUrl.pathname.substring(1);
                     // Prevent directory traversal
                     const safePath = path.join(tempDir, path.basename(fileName));
 
@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
                         }
                         res.setHeader('Access-Control-Allow-Origin', '*'); // Key for CORS
                         res.setHeader('Content-Type', 'application/octet-stream'); // Browser can sniff usually
+                        res.setHeader('Content-Length', data.length);
                         res.end(data);
                     });
                 });
@@ -168,7 +169,7 @@ export async function POST(req: NextRequest) {
                 const composition = await selectComposition({
                     serveUrl: bundleLocation,
                     id: 'Visualizer',
-                    inputProps,
+                    inputProps
                 });
 
                 // Override duration to match total audio length
@@ -189,11 +190,6 @@ export async function POST(req: NextRequest) {
                     outputLocation,
                     inputProps,
                     concurrency: os.cpus().length,
-                    // Enable hardware acceleration if available (e.g. NVENC, VideoToolbox)
-                    // @ts-ignore
-                    proResProfile: 'HQ', // Ignored if h264, but good practice
-                    // @ts-ignore
-                    hardwareAcceleration: 'if-possible',
                     chromiumOptions: {
                         gl: 'angle',
                         // We still allow file access just in case, but rely on HTTP

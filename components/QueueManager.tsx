@@ -150,7 +150,7 @@ export default function QueueManager({ open, onClose }: QueueManagerProps) {
 
     const fetchJobs = useCallback(async () => {
         try {
-            const res = await fetch('/api/queue/list');
+            const res = await fetch(`/api/queue/list?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) return;
             const data = await res.json();
             setJobs(data.jobs);
@@ -171,8 +171,7 @@ export default function QueueManager({ open, onClose }: QueueManagerProps) {
     };
 
     const handleDelete = async (id: string) => {
-        // We'll just cancel (sets cancelled) then clear
-        await fetch(`/api/queue/status?id=${id}`, { method: 'DELETE' });
+        await fetch(`/api/queue/status?id=${id}&action=delete`, { method: 'DELETE' });
         fetchJobs();
     };
 

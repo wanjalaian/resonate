@@ -43,3 +43,6 @@ next-env.d.ts
 # remotion renders
 public/render-*.mp4
 .queue/
+dev.log
+test-remotion.js
+test-ren.ts

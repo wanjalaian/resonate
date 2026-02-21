@@ -12,16 +12,39 @@ export const VISUALIZER_POSITION_PRESETS: Record<VisualizerPositionPreset, numbe
 };
 
 export const GOOGLE_FONTS = [
-    { label: 'Inter', value: 'Inter, sans-serif', import: 'Inter:wght@400;700;900' },
+    { label: 'Inter', value: '"Inter", sans-serif', import: 'Inter' },
     { label: 'Bebas Neue', value: '"Bebas Neue", cursive', import: 'Bebas+Neue' },
-    { label: 'Montserrat', value: '"Montserrat", sans-serif', import: 'Montserrat:wght@400;700;900' },
-    { label: 'Oswald', value: '"Oswald", sans-serif', import: 'Oswald:wght@400;600;700' },
-    { label: 'Space Grotesk', value: '"Space Grotesk", sans-serif', import: 'Space+Grotesk:wght@400;700' },
-    { label: 'Playfair Display', value: '"Playfair Display", serif', import: 'Playfair+Display:wght@400;700;900' },
-    { label: 'Raleway', value: '"Raleway", sans-serif', import: 'Raleway:wght@400;700;900' },
-    { label: 'DM Sans', value: '"DM Sans", sans-serif', import: 'DM+Sans:wght@400;700' },
-    { label: 'Syne', value: '"Syne", sans-serif', import: 'Syne:wght@400;700;800' },
+    { label: 'Montserrat', value: '"Montserrat", sans-serif', import: 'Montserrat' },
+    { label: 'Oswald', value: '"Oswald", sans-serif', import: 'Oswald' },
+    { label: 'Space Grotesk', value: '"Space Grotesk", sans-serif', import: 'Space+Grotesk' },
+    { label: 'Playfair Display', value: '"Playfair Display", serif', import: 'Playfair+Display' },
+    { label: 'Raleway', value: '"Raleway", sans-serif', import: 'Raleway' },
+    { label: 'DM Sans', value: '"DM Sans", sans-serif', import: 'DM+Sans' },
+    { label: 'Syne', value: '"Syne", sans-serif', import: 'Syne' },
     { label: 'Abril Fatface', value: '"Abril Fatface", cursive', import: 'Abril+Fatface' },
+    { label: 'Roboto', value: '"Roboto", sans-serif', import: 'Roboto' },
+    { label: 'Lato', value: '"Lato", sans-serif', import: 'Lato' },
+    { label: 'Poppins', value: '"Poppins", sans-serif', import: 'Poppins' },
+    { label: 'Open Sans', value: '"Open Sans", sans-serif', import: 'Open+Sans' },
+    { label: 'Nunito', value: '"Nunito", sans-serif', import: 'Nunito' },
+    { label: 'Roboto Mono', value: '"Roboto Mono", monospace', import: 'Roboto+Mono' },
+    { label: 'Ubuntu', value: '"Ubuntu", sans-serif', import: 'Ubuntu' },
+    { label: 'Pacifico', value: '"Pacifico", cursive', import: 'Pacifico' },
+    { label: 'Dancing Script', value: '"Dancing Script", cursive', import: 'Dancing+Script' },
+    { label: 'Caveat', value: '"Caveat", cursive', import: 'Caveat' },
+    { label: 'Lobster', value: '"Lobster", cursive', import: 'Lobster' },
+    { label: 'Comfortaa', value: '"Comfortaa", sans-serif', import: 'Comfortaa' },
+    { label: 'Work Sans', value: '"Work Sans", sans-serif', import: 'Work+Sans' },
+    { label: 'Quicksand', value: '"Quicksand", sans-serif', import: 'Quicksand' },
+    { label: 'Anton', value: '"Anton", sans-serif', import: 'Anton' },
+    { label: 'Josefin Sans', value: '"Josefin Sans", sans-serif', import: 'Josefin+Sans' },
+    { label: 'Kanit', value: '"Kanit", sans-serif', import: 'Kanit' },
+    { label: 'Karla', value: '"Karla", sans-serif', import: 'Karla' },
+    { label: 'Lora', value: '"Lora", serif', import: 'Lora' },
+    { label: 'Merriweather', value: '"Merriweather", serif', import: 'Merriweather' },
+    { label: 'EB Garamond', value: '"EB Garamond", serif', import: 'EB+Garamond' },
+    { label: 'Outfit', value: '"Outfit", sans-serif', import: 'Outfit' },
+    { label: 'Teko', value: '"Teko", sans-serif', import: 'Teko' },
 ];
 
 export interface VisualizerConfig {
@@ -36,6 +59,7 @@ export interface VisualizerConfig {
     // Font customisation
     titleFontFamily: string;   // CSS font-family string from GOOGLE_FONTS
     titleFontSize: number;     // px for the track name
+    titleColor: string;        // Text color
     titleBold: boolean;
     titleItalic: boolean;
     titleAllCaps: boolean;
@@ -182,7 +206,7 @@ const SingleTrackVisualizer: React.FC<{
                         fontStyle: fi,
                         textTransform: tt as any,
                         letterSpacing: ls,
-                        color: '#FFFFFF',
+                        color: config.titleColor || '#FFFFFF',
                         margin: 0,
                         lineHeight: 1.1,
                         textShadow: '0 4px 24px rgba(0,0,0,0.9)',
@@ -279,8 +303,9 @@ export const VisualizerComposition: React.FC<VisualizerCompositionProps> = ({
         orientation: 'horizontal',
         showTitle: true,
         titlePosition: 'bottom-left',
-        titleFontFamily: 'Inter, sans-serif',
+        titleFontFamily: '"Inter", sans-serif',
         titleFontSize: 64,
+        titleColor: '#FFFFFF',
         titleBold: true,
         titleItalic: false,
         titleAllCaps: false,

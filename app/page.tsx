@@ -292,7 +292,6 @@ export default function AudioVisualizerApp() {
   const [backgrounds, setBackgrounds] = useState<BackgroundMedia[]>([]);
 
   const [showAllTracks, setShowAllTracks] = useState(false);
-  const [showTimestamps, setShowTimestamps] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
 
@@ -302,7 +301,6 @@ export default function AudioVisualizerApp() {
   const [exportJobLabel, setExportJobLabel] = useState('');
   const [exportMetaTitle, setExportMetaTitle] = useState('');
   const [exportMetaDesc, setExportMetaDesc] = useState('');
-  const [exportTimestamps, setExportTimestamps] = useState('');
 
   // Queue Manager panel
   const [showQueue, setShowQueue] = useState(false);
@@ -318,8 +316,9 @@ export default function AudioVisualizerApp() {
     orientation: 'horizontal',
     showTitle: true,
     titlePosition: 'bottom-left',
-    titleFontFamily: 'Inter, sans-serif',
+    titleFontFamily: '"Inter", sans-serif',
     titleFontSize: 64,
+    titleColor: '#FFFFFF',
     titleBold: true,
     titleItalic: false,
     titleAllCaps: false,
@@ -482,7 +481,6 @@ export default function AudioVisualizerApp() {
   };
 
   const openExportModal = () => {
-    setExportTimestamps(timestampText);
     if (!exportMetaTitle && audioTracks.length > 0) setExportMetaTitle(audioTracks[0].name);
     if (!exportJobLabel && audioTracks.length > 0) setExportJobLabel(audioTracks[0].name);
     setShowExportModal(true);
@@ -591,7 +589,6 @@ export default function AudioVisualizerApp() {
     const lines: string[] = [];
     if (exportMetaTitle) lines.push(`Title: ${exportMetaTitle}`);
     if (exportMetaDesc) { lines.push(''); lines.push(`Description:\n${exportMetaDesc}`); }
-    if (exportTimestamps) { lines.push(''); lines.push(`Timestamps:\n${exportTimestamps}`); }
     if (lines.length === 0) return;
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     const a = document.createElement('a');
@@ -608,36 +605,14 @@ export default function AudioVisualizerApp() {
 
   const totalDuration = audioTracks.reduce((acc, t) => acc + t.durationInFrames, 0);
 
-  const timestampText = useMemo(() => {
-    let currentTime = 0;
-    return audioTracks.map(t => {
-      const mins = Math.floor(currentTime / 60);
-      const secs = Math.floor(currentTime % 60);
-      const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-      const dur = t.durationInFrames / 30;
-      currentTime += dur;
-      return `${timeStr} - ${t.name}`;
-    }).join('\n');
-  }, [audioTracks]);
-
   return (
     <div className="h-screen bg-neutral-950 text-white font-sans flex flex-col overflow-hidden">
 
       {/* Header */}
       <header className="h-16 shrink-0 border-b border-neutral-800 bg-neutral-900/80 backdrop-blur flex items-center justify-between px-6 z-20">
         <div className="flex items-center gap-3">
-          {/* Resonate logo mark (SVG) */}
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" rx="8" fill="url(#rg)" />
-            <path d="M6 16 Q9 9, 12 16 Q15 23, 18 16 Q21 9, 24 16" stroke="white" strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.95" />
-            <circle cx="26" cy="16" r="2" fill="white" opacity="0.7" />
-            <defs>
-              <linearGradient id="rg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#14b8a6" />
-                <stop offset="100%" stopColor="#a855f7" />
-              </linearGradient>
-            </defs>
-          </svg>
+          {/* Circular Resonate Logo */}
+          <img src="/logo.jpg" alt="resonate logo" className="rounded-full w-8 h-8 object-cover shadow-lg border border-neutral-800" />
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif' }} className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-purple-400">
             resonate
           </h1>
@@ -691,22 +666,8 @@ export default function AudioVisualizerApp() {
                       <Shuffle size={12} /> Shuffle
                     </button>
                   )}
-                  <button onClick={() => setShowTimestamps(!showTimestamps)} className="text-[10px] uppercase bg-neutral-800 text-neutral-400 px-2 py-1 rounded hover:text-white transition">
-                    {showTimestamps ? 'Hide Times' : 'Get Times'}
-                  </button>
                 </div>
               </div>
-
-              {showTimestamps && (
-                <div className="p-3 bg-neutral-950 rounded border border-neutral-800">
-                  <textarea
-                    readOnly
-                    value={timestampText}
-                    className="w-full bg-transparent text-xs text-neutral-400 h-24 focus:outline-none resize-none font-mono"
-                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                  />
-                </div>
-              )}
 
               <div className="space-y-1">
                 <DndContext
@@ -967,7 +928,7 @@ export default function AudioVisualizerApp() {
               </div>
 
               {/* Color */}
-              <div className="space-y-2 pt-2 border-t border-neutral-800/50">
+              <div className="space-y-4 pt-4 border-t border-neutral-800/50">
                 <div className="flex items-center gap-2 bg-neutral-800 p-2 rounded-lg border border-neutral-700">
                   <input
                     type="color"
@@ -977,6 +938,18 @@ export default function AudioVisualizerApp() {
                   />
                   <span className="text-xs text-neutral-400 font-mono flex-1 ml-2">Visualizer Color</span>
                 </div>
+
+                {config.showTitle && (
+                  <div className="flex items-center gap-2 bg-neutral-800 p-2 rounded-lg border border-neutral-700">
+                    <input
+                      type="color"
+                      value={config.titleColor}
+                      onChange={(e) => setConfig({ ...config, titleColor: e.target.value })}
+                      className="w-6 h-6 rounded bg-transparent cursor-pointer border-none p-0"
+                    />
+                    <span className="text-xs text-neutral-400 font-mono flex-1 ml-2">Text Color</span>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -1095,21 +1068,6 @@ export default function AudioVisualizerApp() {
                   placeholder="Add a description for your video..."
                   rows={3}
                   className="w-full bg-neutral-800 border border-neutral-700 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-neutral-600 transition resize-none"
-                />
-              </div>
-
-              {/* Timestamps */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Timestamps</label>
-                  <span className="text-[10px] text-neutral-600">Auto-generated · editable</span>
-                </div>
-                <textarea
-                  value={exportTimestamps}
-                  onChange={(e) => setExportTimestamps(e.target.value)}
-                  rows={4}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-teal-500/60 rounded-lg px-3 py-2.5 text-xs text-neutral-300 font-mono focus:outline-none transition resize-none"
-                  placeholder="0:00 - Track Name"
                 />
               </div>
 

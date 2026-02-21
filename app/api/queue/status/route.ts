@@ -19,7 +19,13 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get('id');
+    const action = req.nextUrl.searchParams.get('action');
     if (!id) return NextResponse.json({ error: 'No id' }, { status: 400 });
-    queue.cancel(id);
+
+    if (action === 'delete') {
+        queue.delete(id);
+    } else {
+        queue.cancel(id);
+    }
     return NextResponse.json({ ok: true });
 }

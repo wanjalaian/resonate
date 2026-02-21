@@ -118,12 +118,13 @@ async function renderJob(job: QueueJob) {
 
     try {
         const { bundle } = await import('@remotion/bundler');
-        const { renderMedia, selectComposition, stitchFramesToVideo } = await import('@remotion/renderer');
+        const { renderFrames, selectComposition } = await import('@remotion/renderer');
 
         // ── Write audio files ──────────────────────────────────────────────────
         const fileMap: Record<string, string> = {};
         for (const [trackId, b64] of Object.entries(audioFiles as Record<string, string>)) {
-            const safeName = `audio-${trackId}.data`;
+            let safeName = trackId.replace(/[^a-zA-Z0-9.-]/g, '_');
+            if (!path.extname(safeName)) safeName += '.mp3';
             await writeFile(path.join(tempDir, safeName), Buffer.from(b64, 'base64'));
             fileMap[trackId] = safeName;
         }
@@ -131,19 +132,34 @@ async function renderJob(job: QueueJob) {
         // ── Write background files ─────────────────────────────────────────────
         const bgFileMap: Record<string, string> = {};
         for (const [bgId, b64] of Object.entries(bgFileBuffers as Record<string, string>)) {
-            const safeName = `bg-${bgId}.data`;
+            let safeName = 'bg-' + bgId.replace(/[^a-zA-Z0-9.-]/g, '_');
+            if (!path.extname(safeName)) safeName += '.mp4';
             await writeFile(path.join(tempDir, safeName), Buffer.from(b64, 'base64'));
             bgFileMap[bgId] = safeName;
         }
 
         // ── Local asset HTTP server ────────────────────────────────────────────
         server = http.createServer((req, res) => {
-            const fileName = (req.url || '/').substring(1);
+            const parsedUrl = new URL(req.url || '/', 'http://localhost');
+            const fileName = parsedUrl.pathname.substring(1);
             const safePath = path.join(tempDir, path.basename(fileName));
             fs.readFile(safePath, (err, data) => {
                 if (err) { res.statusCode = 404; res.end('Not Found'); return; }
+                const ext = path.extname(safePath).toLowerCase();
+                let mimeType = 'application/octet-stream';
+                if (ext === '.mp3') mimeType = 'audio/mpeg';
+                else if (ext === '.wav') mimeType = 'audio/wav';
+                else if (ext === '.m4a') mimeType = 'audio/mp4';
+                else if (ext === '.aac') mimeType = 'audio/aac';
+                else if (ext === '.mp4') mimeType = 'video/mp4';
+                else if (ext === '.mov') mimeType = 'video/quicktime';
+                else if (ext === '.webm') mimeType = 'video/webm';
+                else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+                else if (ext === '.png') mimeType = 'image/png';
+                else if (ext === '.gif') mimeType = 'image/gif';
                 res.setHeader('Access-Control-Allow-Origin', '*');
-                res.setHeader('Content-Type', 'application/octet-stream');
+                res.setHeader('Content-Type', mimeType);
+                res.setHeader('Content-Length', data.length);
                 res.end(data);
             });
         });
@@ -205,7 +221,7 @@ async function renderJob(job: QueueJob) {
 
         // Check for existing frames
         const existingFiles = await readdir(framesDir).catch(() => []);
-        const frameFiles = existingFiles.filter(f => /^frame-\d+\.jpeg$/.test(f));
+        const frameFiles = existingFiles.filter(f => /^element-\d+\.jpeg$/.test(f));
 
         let startFrame = 0;
         if (frameFiles.length > 0) {
@@ -219,7 +235,11 @@ async function renderJob(job: QueueJob) {
             console.log(`[Worker] Resuming job ${id} from frame ${startFrame} (${frameFiles.length} frames found)`);
         }
 
-        const composition = await selectComposition({ serveUrl: bundleLocation, id: 'Visualizer', inputProps });
+        const composition = await selectComposition({
+            serveUrl: bundleLocation,
+            id: 'Visualizer',
+            inputProps,
+        });
         const totalDuration = rawTracks.reduce((acc: number, t: any) => acc + (t.durationInFrames || 0), 0);
         // Ensure accurate duration
         const durationInFrames = totalDuration > 0 ? totalDuration : 300; // default 10s
@@ -231,23 +251,30 @@ async function renderJob(job: QueueJob) {
             console.log(`[Worker] Rendering frames ${startFrame} to ${endFrame} for job ${id}`);
             queue.update(id, { status: 'rendering', progress: startFrame / durationInFrames });
 
-            await renderMedia({
+            await renderFrames({
                 composition,
                 serveUrl: bundleLocation,
-                codec: 'h264', // ignored for images, but required param
-                outputLocation: path.join(framesDir, 'frame-{frame}.jpeg'),
+                outputDir: framesDir,
                 imageFormat: 'jpeg',
                 inputProps,
                 frameRange: [startFrame, endFrame],
                 concurrency: os.cpus().length,
-                chromiumOptions: { gl: 'angle' },
-                onProgress: ({ progress }) => {
-                    // progress here is 0..1 for the *current range*. 
-                    // We need global progress: (startFrame + (progress * (endFrame - startFrame))) / total
-                    const rangeLength = endFrame - startFrame + 1;
-                    const absoluteProgress = (startFrame + (progress * rangeLength)) / durationInFrames;
-                    queue.setProgress(id, absoluteProgress);
+                chromiumOptions: {
+                    gl: 'angle'
                 },
+                onStart: () => { },
+                onFrameUpdate: (() => {
+                    let lastUpdate = 0;
+                    const rangeLength = endFrame - startFrame + 1;
+                    return (framesRendered: number) => {
+                        const now = Date.now();
+                        if (now - lastUpdate > 200 || framesRendered === rangeLength) {
+                            lastUpdate = now;
+                            const absoluteProgress = (startFrame + framesRendered) / durationInFrames;
+                            queue.setProgress(id, absoluteProgress);
+                        }
+                    };
+                })(),
             });
         } else {
             console.log(`[Worker] Job ${id} already has all frames rendered. Skipping to stitch.`);
@@ -261,36 +288,13 @@ async function renderJob(job: QueueJob) {
         const publicDir = path.join(process.cwd(), 'public');
         const outputLocation = path.join(publicDir, outputFileName);
 
-        const assets = Array.from({ length: durationInFrames }).map((_, i) =>
-            path.join(framesDir, `frame-${i}.jpeg`)
-        );
-
         const encoder = getEncoder();
         queue.update(id, { encoderUsed: encoder });
 
-        // Use direct ffmpeg command for stitching (more robust than internal API)
         const ffmpegBin = findFfmpeg() || 'ffmpeg';
         const fps = composition.fps || 30;
-
-        // Input pattern: frame-%d.jpeg (handles frame-0.jpeg, frame-1.jpeg etc)
-        // Note: ffmpeg expects %d to match 0, 1, 2...
-        const inputPattern = path.join(framesDir, 'frame-%d.jpeg');
-
-        // Construct command
-        // -y: overwrite output
-        // -framerate: input fps
-        // -i: input pattern
-        // -c:v: video codec (hw accel if detected)
-        // -pix_fmt: yuv420p for compatibility
-        // -shortest: limit by shortest stream (only video here, but good practice)
-        /* 
-           Hardware Encoders:
-           h264_videotoolbox (Mac) -> -c:v h264_videotoolbox -b:v 5M
-           h264_nvenc (NVIDIA) -> -c:v h264_nvenc -preset p4
-           h264_amf (AMD) -> -c:v h264_amf
-           h264_qsv (Intel) -> -c:v h264_qsv
-           libx264 (CPU) -> -c:v libx264 -preset fast -crf 23
-        */
+        const padLength = String(durationInFrames - 1).length;
+        const inputPattern = path.join(framesDir, `element-%0${padLength}d.jpeg`);
 
         let codecArgs = '-c:v libx264 -preset fast -crf 23';
         if (encoder === 'h264_videotoolbox') codecArgs = '-c:v h264_videotoolbox -b:v 8M -allow_sw 1';
@@ -298,30 +302,29 @@ async function renderJob(job: QueueJob) {
         if (encoder === 'h264_amf') codecArgs = '-c:v h264_amf -b:v 5M';
         if (encoder === 'h264_qsv') codecArgs = '-c:v h264_qsv -b:v 5M';
 
-        // Add audio from the composition? 
-        // Wait, we rendered images only. Audio is missing!
-        // We need to render audio separately or add it here.
-        // Remotion's renderMedia usually handles audio+video.
-        // But renderFrames/images doesn't output audio.
-        // So we need to render audio to a file first? Or use renderMedia to MP3/WAV?
-        // Actually, renderMedia({ ... }) to audio file is possible.
-        // Let's first stitch video. Then if audio exists, we merge?
-        // Or simpler: Just render audio once at the start (fast) to `audio.mp3`.
-        // Then input it to ffmpeg.
+        // Mix the original audio tracks natively through FFmpeg
+        const trackIds = Object.keys(fileMap);
+        let audioInputs = '';
+        let filterComplex = '';
+        let mappingArgs = '';
 
-        // For visualizer, audio is critical.
-        // Let's render audio now (it's fast).
-        const audioOutput = path.join(tempDir, 'audio.mp3');
-        await renderMedia({
-            composition,
-            serveUrl: bundleLocation,
-            codec: 'mp3',
-            outputLocation: audioOutput,
-            inputProps,
-            concurrency: os.cpus().length,
-        });
+        if (trackIds.length > 0) {
+            trackIds.forEach((tid, idx) => {
+                const trackFile = path.join(tempDir, fileMap[tid]);
+                audioInputs += ` -i "${trackFile}"`;
+            });
 
-        const cmd = `"${ffmpegBin}" -y -framerate ${fps} -i "${inputPattern}" -i "${audioOutput}" ${codecArgs} -pix_fmt yuv420p -shortest "${outputLocation}"`;
+            // If multiple tracks exist, we use amix, otherwise just map the single track
+            if (trackIds.length > 1) {
+                const streamInputs = trackIds.map((_, i) => `[${i + 1}:a]`).join('');
+                filterComplex = `-filter_complex "${streamInputs}amix=inputs=${trackIds.length}:duration=longest[aout]"`;
+                mappingArgs = `-map 0:v -map "[aout]" -c:a aac -b:a 192k`;
+            } else {
+                mappingArgs = `-map 0:v -map 1:a -c:a aac -b:a 192k`;
+            }
+        }
+
+        const cmd = `"${ffmpegBin}" -y -framerate ${fps} -i "${inputPattern}"${audioInputs} ${codecArgs} ${filterComplex} ${mappingArgs} -pix_fmt yuv420p -shortest "${outputLocation}"`;
 
         console.log(`[Worker] Executing ffmpeg: ${cmd}`);
         execSync(cmd, { stdio: 'inherit' });
